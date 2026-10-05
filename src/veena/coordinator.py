@@ -624,7 +624,12 @@ class Coordinator:
                 msg = f"proposal {handle.proposal_id} has no implementation of {asset_id} to verify"
                 raise CoordinationError(msg)
             outcome = verify(
-                asset.spec, self._semantic, impl_id, self._backend.execute, as_of=handle.as_of
+                asset.spec,
+                self._semantic,
+                impl_id,
+                self._backend.execute,
+                as_of=handle.as_of,
+                dialect=self._backend.dialect,
             )
             checks = list(outcome.checks)
             previous = asset.active_implementation

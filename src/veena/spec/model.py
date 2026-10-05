@@ -2,15 +2,35 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from enum import StrEnum
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from veena.refs import OriginRef, PolicyRef, SemanticRef
 
 _IDENT = r"^[a-z][a-z0-9_]*$"
+_TIMEZONE = re.compile(r"^[A-Za-z0-9_+\-/]+$")
+
+
+def validate_timezone(value: str) -> str:
+    """Accept only IANA zone names Python can load, so they are safe inside SQL literals.
+
+    Raises:
+        ValueError: The name is malformed or unknown.
+    """
+    if not _TIMEZONE.match(value):
+        msg = f"timezone {value!r} has characters outside [A-Za-z0-9_+-/]"
+        raise ValueError(msg)
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        msg = f"unknown timezone {value!r}"
+        raise ValueError(msg) from exc
+    return value
 
 
 class Aggregation(StrEnum):
@@ -97,6 +117,21 @@ class Window(BaseModel):
         """Days of source history the asset needs."""
         return max(self.complete_calendar_days or 0, self.history_days or 0)
 
+    def effective_days(self, time_bucket: TimeBucket) -> int:
+        """The days an implementation of this grain windows on.
+
+        A windowed asset uses `complete_calendar_days`; a bucketed asset uses `history_days`.
+        Planner and verification both call this, so they always agree.
+        """
+        if time_bucket is TimeBucket.NONE:
+            return self.complete_calendar_days or self.history_days or 0
+        return self.history_days or self.complete_calendar_days or 0
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        return validate_timezone(value)
+
 
 class Filter(BaseModel):
     """A predicate on an attribute that every row must satisfy."""
@@ -159,6 +194,12 @@ class AssetSpec(BaseModel):
             raise ValueError(msg)
         if self.grain.time_bucket is not TimeBucket.NONE and self.window.history_days is None:
             msg = "a time-bucketed asset must set window.history_days"
+            raise ValueError(msg)
+        if self.grain.time_bucket is not TimeBucket.NONE and self.population.include_inactive:
+            msg = (
+                "a time-bucketed asset cannot include inactive members: there is no row for a "
+                "member on a day it had no activity; set population.include_inactive to false"
+            )
             raise ValueError(msg)
         return self
 

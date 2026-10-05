@@ -76,7 +76,8 @@ def test_snowflake_conformance_sequence_is_staged(semantic):
     sql, _ = backend.render(plan, as_of=AS_OF)
     progress = backend.materialize("impl_a", sql, plan)
     assert progress.row_count == 200 and "purchases" in progress.positions
-    assert conn.statements[0].startswith("CREATE OR REPLACE TRANSIENT TABLE impl_a AS")
+    assert conn.statements[0] == "ALTER SESSION SET TIMEZONE = 'UTC'"
+    assert conn.statements[1].startswith("CREATE OR REPLACE TRANSIENT TABLE impl_a AS")
     assert backend.atomic_publish is False
     backend.publish_many({"customer_spend_30d": "impl_a", "customer_spend_90d": "impl_b"})
     views = [s for s in conn.statements if s.startswith("CREATE OR REPLACE VIEW")]

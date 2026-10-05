@@ -7,11 +7,10 @@ staged, one `InterfaceSwitched` event each.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from veena.backends.sql import SqlBackend
-from veena.spec.model import TimeBucket
+from veena.sqldialect import SnowflakeDialect, SqlDialect
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -35,7 +34,7 @@ class SnowflakeBackend(SqlBackend):
     """Renders Snowflake SQL and runs it through a DB-API connection."""
 
     name = "snowflake"
-    dialect = "snowflake"
+    dialect: ClassVar[SqlDialect] = SnowflakeDialect()
     atomic_ddl = False
 
     def __init__(
@@ -64,21 +63,6 @@ class SnowflakeBackend(SqlBackend):
             if callable(close):
                 close()
             self._opened = None
-
-    def ts_literal(self, value: datetime) -> str:
-        """Snowflake takes `TIMESTAMP_TZ` through a cast."""
-        return f"'{value.astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S')} +0000'::TIMESTAMP_TZ"
-
-    def local_timestamp(self, expression: str, timezone: str) -> str:
-        """Snowflake converts zones with CONVERT_TIMEZONE."""
-        return f"CONVERT_TIMEZONE('{timezone}', {expression})"
-
-    def bucket(self, step_bucket: TimeBucket, expression: str, timezone: str) -> str:
-        """Truncate to a date in the target zone."""
-        local = self.local_timestamp(expression, timezone)
-        if step_bucket is TimeBucket.DAY:
-            return f"CAST({local} AS DATE)"
-        return f"CAST(DATE_TRUNC('MONTH', {local}) AS DATE)"
 
     def create_table(self, name: str, sql: str) -> str:
         """Transient tables skip Fail-safe; implementations are rebuildable."""

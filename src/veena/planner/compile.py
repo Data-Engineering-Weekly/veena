@@ -106,10 +106,11 @@ def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
         raise PlanError(msg)
     rule = rules[0]
     direct = policy.kind == "direct"
-    if not direct and entity.key in fact_source.columns:
+    carries_key_already = direct and policy.fact_key == entity.key
+    if entity.key in fact_source.columns and not carries_key_already:
         msg = (
             f"{spec.ref}: fact source {fact_source_name!r} already has a column named "
-            f"{entity.key!r}; the identity join cannot add it"
+            f"{entity.key!r}; attaching the entity would produce two"
         )
         raise PlanError(msg)
 
@@ -130,10 +131,10 @@ def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
             timezone=rule.timezone,
         ),
         WindowStep(
-            complete_calendar_days=spec.window.complete_calendar_days
+            complete_calendar_days=spec.window.effective_days(spec.grain.time_bucket)
             if spec.grain.time_bucket is TimeBucket.NONE
             else None,
-            history_days=spec.window.history_days
+            history_days=spec.window.effective_days(spec.grain.time_bucket)
             if spec.grain.time_bucket is not TimeBucket.NONE
             else None,
             timezone=spec.window.timezone,
@@ -164,7 +165,8 @@ def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
                 entity_source=entity_source.name,
                 entity_table=entity_source.table,
                 entity_key=entity.key,
-                zero_fill=tuple(m.name for m in measures),
+                zero_fill=tuple(m.name for m in measures if m.aggregation in ZERO_FILL),
+                carry=tuple(m.name for m in measures if m.aggregation not in ZERO_FILL),
             )
         )
     return Plan(
@@ -243,7 +245,8 @@ def compile_from_provider(
                 entity_source=entity_source.name,
                 entity_table=entity_source.table,
                 entity_key=entity.key,
-                zero_fill=tuple(m.name for m in rollups),
+                zero_fill=tuple(m.name for m in rollups if m.aggregation in ZERO_FILL),
+                carry=tuple(m.name for m in rollups if m.aggregation not in ZERO_FILL),
             )
         )
     return Plan(

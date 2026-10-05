@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from veena.backends.sql import SqlBackend
+from veena.sqldialect import DuckDBDialect, SqlDialect
 
 if TYPE_CHECKING:
     import duckdb
@@ -16,7 +17,7 @@ class DuckDBBackend(SqlBackend):
     """DuckDB speaks the base dialect and runs DDL inside transactions."""
 
     name = "duckdb"
-    dialect = "duckdb"
+    dialect: ClassVar[SqlDialect] = DuckDBDialect()
     atomic_ddl = True
 
     def __init__(

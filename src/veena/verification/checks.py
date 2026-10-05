@@ -1,4 +1,8 @@
-"""Check builders and the verifier."""
+"""Check builders and the verifier.
+
+Every query here is built from the specification and the semantic model, rendered through a
+dialect so it runs on the same engine as the candidate. No query reads the candidate's SQL.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +12,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from veena.calendar import sql_timestamptz, window_bounds
+from veena.calendar import window_bounds
 from veena.errors import SemanticRefError, VerificationError
 from veena.evidence import CheckResult, Grade, verification_grade
 from veena.spec.model import Aggregation, TimeBucket
+from veena.sqldialect import DuckDBDialect, SqlDialect
 
 if TYPE_CHECKING:
     from veena.semantic.model import SemanticModel
@@ -20,10 +25,6 @@ if TYPE_CHECKING:
 Execute = Callable[[str], Sequence[tuple[object, ...]]]
 
 _BUCKET = {TimeBucket.DAY: "day", TimeBucket.MONTH: "month"}
-_BUCKET_SQL = {
-    TimeBucket.DAY: "CAST({ts} AT TIME ZONE '{tz}' AS DATE)",
-    TimeBucket.MONTH: "CAST(DATE_TRUNC('month', {ts} AT TIME ZONE '{tz}') AS DATE)",
-}
 _AGG = {
     Aggregation.SUM: "SUM",
     Aggregation.COUNT: "COUNT",
@@ -31,6 +32,8 @@ _AGG = {
     Aggregation.MAX: "MAX",
     Aggregation.AVG: "AVG",
 }
+# Re-aggregating already aggregated rows: a COUNT per key sums to the total.
+_TOTAL = {Aggregation.SUM: "SUM", Aggregation.COUNT: "SUM"}
 ABSOLUTE_TOLERANCE = 0.005
 
 
@@ -62,7 +65,12 @@ class VerificationOutcome(BaseModel):
 
 
 def build_checks(
-    spec: AssetSpec, semantic: SemanticModel, relation: str, *, as_of: datetime
+    spec: AssetSpec,
+    semantic: SemanticModel,
+    relation: str,
+    *,
+    as_of: datetime,
+    dialect: SqlDialect | None = None,
 ) -> tuple[Check, ...]:
     """Generate the checks a spec implies.
 
@@ -71,14 +79,17 @@ def build_checks(
         semantic: The approved definitions to reconcile against.
         relation: Table or view name holding the candidate output.
         as_of: Instant that fixes the window.
+        dialect: The engine's dialect. Defaults to DuckDB.
 
     Returns:
         Uniqueness and population checks (structural), then one reconciliation per measure and
-        one conservation check per re-aggregable measure (value checks).
+        one conservation check per additive measure (value checks).
 
     Raises:
-        VerificationError: The spec names definitions the semantic model lacks.
+        VerificationError: The spec names definitions the semantic model lacks, or the direct
+            identity policy would produce a duplicate key column.
     """
+    d = dialect or DuckDBDialect()
     try:
         entity = semantic.entity(spec.population.entity)
         policy = semantic.identity_policy(spec.identity_policy)
@@ -94,22 +105,23 @@ def build_checks(
         msg = f"cannot verify {spec.ref}: {len(rules)} time rules cover {fact.name!r}"
         raise VerificationError(msg)
     rule = rules[0]
-
     key = entity.key
+    if mapping is None and policy.fact_key != key and key in fact.columns:
+        msg = (
+            f"cannot verify {spec.ref}: fact source {fact.name!r} already has a column named "
+            f"{key!r}, so the direct identity policy {policy.name} would produce two"
+        )
+        raise VerificationError(msg)
+
+    fact_ts = d.as_tz(rule.timestamp_column)
     bucket = _BUCKET.get(spec.grain.time_bucket)
     bucket_expr = (
-        _BUCKET_SQL[spec.grain.time_bucket].format(
-            ts=rule.timestamp_column, tz=spec.window.timezone
-        )
-        if bucket
-        else None
+        d.bucket(spec.grain.time_bucket, fact_ts, spec.window.timezone) if bucket else None
     )
     group_cols = [key] + ([bucket] if bucket else [])
-    start, end = window_bounds(as_of, spec.window.span_days, spec.window.timezone)
-    in_window = (
-        f"{rule.timestamp_column} >= {sql_timestamptz(start)} "
-        f"AND {rule.timestamp_column} < {sql_timestamptz(end)}"
-    )
+    days = spec.window.effective_days(spec.grain.time_bucket)
+    start, end = window_bounds(as_of, days, spec.window.timezone)
+    in_window = f"{fact_ts} >= {d.ts_literal(start)} AND {fact_ts} < {d.ts_literal(end)}"
 
     checks: list[Check] = [
         Check(
@@ -117,7 +129,7 @@ def build_checks(
             description=f"one row per {', '.join(group_cols)}",
             grade=Grade.TEST,
             structural=True,
-            sql=(f"SELECT count(*) - count(DISTINCT ({', '.join(group_cols)})) FROM {relation}"),
+            sql=f"SELECT count(*) - {d.count_distinct_rows(group_cols)} FROM {relation}",
             judge="zero",
         )
     ]
@@ -154,20 +166,24 @@ def build_checks(
 
     # Reference attribution written from the identity policy, independent of any candidate.
     if mapping is None:
-        attributed = (
-            f"SELECT f.{policy.fact_key} AS {key}, f.* EXCLUDE ({policy.fact_key})\n"
-            f"    FROM {fact.table} f\n"
-            f"    WHERE {in_window}"
-        )
+        if policy.fact_key == key:
+            attributed = f"SELECT f.*\n    FROM {fact.table} f\n    WHERE {in_window}"
+        else:
+            attributed = (
+                f"SELECT f.{policy.fact_key} AS {key}, f.*\n"
+                f"    FROM {fact.table} f\n"
+                f"    WHERE {in_window}"
+            )
     else:
+        policy_ts = d.as_tz(f"f.{policy.fact_timestamp}")
         attributed = (
             f"SELECT m.{policy.mapping_entity_key} AS {key}, f.*\n"
             f"    FROM {fact.table} f\n"
             f"    JOIN {mapping.table} m\n"
             f"      ON m.{policy.mapping_fact_key} = f.{policy.fact_key}\n"
-            f"     AND f.{policy.fact_timestamp} >= m.{policy.valid_from}\n"
+            f"     AND {policy_ts} >= {d.as_tz(f'm.{policy.valid_from}')}\n"
             f"     AND (m.{policy.valid_to} IS NULL "
-            f"OR f.{policy.fact_timestamp} < m.{policy.valid_to})\n"
+            f"OR {policy_ts} < {d.as_tz(f'm.{policy.valid_to}')})\n"
             f"    WHERE {in_window}"
         )
     for measure in spec.measures:
@@ -188,16 +204,14 @@ def build_checks(
                 )
             )
             continue
-        ref_select = ", ".join(
-            [key, *([f"{bucket_expr} AS {bucket}"] if bucket and bucket_expr else [])]
-        )
+        ref_select = ", ".join([key, *([f"{bucket_expr} AS {bucket}"] if bucket_expr else [])])
         ref_group = ", ".join([key, *([bucket_expr] if bucket_expr else [])])
         reference = (
             f"SELECT {ref_select}, {agg}({calc.expression}) AS expected\n"
             f"  FROM ({attributed}) a\n  GROUP BY {ref_group}"
         )
-        join_on = " AND ".join(f"r.{c} = x.{c}" for c in group_cols)
-        zero = "0" if measure.aggregation in {Aggregation.SUM, Aggregation.COUNT} else "NULL"
+        join_on = " AND ".join(f"r.{c} IS NOT DISTINCT FROM x.{c}" for c in group_cols)
+        zero = "0" if measure.aggregation in _TOTAL else "NULL"
         checks.append(
             Check(
                 name=f"reconcile_{measure.name}",
@@ -209,7 +223,8 @@ def build_checks(
                 structural=False,
                 sql=(
                     f"WITH expected AS (\n{reference}\n)\n"
-                    f"SELECT r.{key}, r.{measure.name}, COALESCE(x.expected, {zero}) AS expected\n"
+                    f"SELECT COALESCE(r.{key}, x.{key}) AS {key}, r.{measure.name}, "
+                    f"COALESCE(x.expected, {zero}) AS expected\n"
                     f"FROM {relation} r\nFULL OUTER JOIN expected x ON {join_on}\n"
                     f"WHERE abs(COALESCE(r.{measure.name}, 0) - COALESCE(x.expected, 0)) > "
                     f"{ABSOLUTE_TOLERANCE}\nORDER BY 1"
@@ -218,7 +233,8 @@ def build_checks(
                 uncertainty=f"absolute tolerance {ABSOLUTE_TOLERANCE} {calc.unit}",
             )
         )
-        if measure.aggregation in {Aggregation.SUM, Aggregation.COUNT}:
+        total = _TOTAL.get(measure.aggregation)
+        if total is not None:
             checks.append(
                 Check(
                     name=f"conserve_{measure.name}",
@@ -229,7 +245,7 @@ def build_checks(
                     grade=Grade.RECONCILIATION,
                     structural=False,
                     sql=(
-                        f"SELECT (SELECT COALESCE({agg}({measure.name}), 0) FROM {relation}) - "
+                        f"SELECT (SELECT COALESCE({total}({measure.name}), 0) FROM {relation}) - "
                         f"(SELECT COALESCE({agg}({calc.expression}), 0) FROM {fact.table} "
                         f"WHERE {in_window})"
                     ),
@@ -252,15 +268,24 @@ def equivalence(
 ) -> CheckResult:
     """Compare two implementations of the same spec at matching inputs, key by key.
 
-    Agreement is weak evidence: both can share a mistake. The result is graded `test`.
+    Agreement is weak evidence: both can share a mistake. The result is graded `test`. NULL keys
+    join with NULL keys, and a NULL measure differs from any number.
     """
-    on = " AND ".join(f"p.{k} = c.{k}" for k in keys)
+    on = " AND ".join(f"p.{k} IS NOT DISTINCT FROM c.{k}" for k in keys)
     diffs = " OR ".join(
-        f"abs(COALESCE(p.{m}, 0) - COALESCE(c.{m}, 0)) > {ABSOLUTE_TOLERANCE}" for m in measures
+        f"(p.{m} IS DISTINCT FROM c.{m} AND "
+        f"abs(COALESCE(p.{m}, 0) - COALESCE(c.{m}, 0)) > {ABSOLUTE_TOLERANCE})"
+        f" OR (p.{m} IS NULL) <> (c.{m} IS NULL)"
+        for m in measures
+    )
+    first = keys[0]
+    missing = (
+        f"(p.{first} IS NULL AND c.{first} IS NOT NULL) "
+        f"OR (c.{first} IS NULL AND p.{first} IS NOT NULL)"
     )
     sql = (
         f"SELECT count(*) FROM {previous} p FULL OUTER JOIN {candidate} c ON {on} "
-        f"WHERE p.{keys[0]} IS NULL OR c.{keys[0]} IS NULL OR {diffs}"
+        f"WHERE ({missing}) OR {diffs}"
     )
     rows = execute(sql)
     differing = int(str(rows[0][0])) if rows and rows[0] else 0
@@ -282,6 +307,7 @@ def verify(
     execute: Execute,
     *,
     as_of: datetime,
+    dialect: SqlDialect | None = None,
 ) -> VerificationOutcome:
     """Build and run every check for a relation.
 
@@ -291,13 +317,13 @@ def verify(
         relation: Table or view holding the candidate output.
         execute: Runs one SQL string and returns rows.
         as_of: Instant that fixes the window.
+        dialect: The engine's dialect. Defaults to DuckDB.
 
     Returns:
         Pass or fail, the grade of evidence held, and every check result.
     """
-    results = tuple(
-        _run(check, execute) for check in build_checks(spec, semantic, relation, as_of=as_of)
-    )
+    checks = build_checks(spec, semantic, relation, as_of=as_of, dialect=dialect)
+    results = tuple(_run(check, execute) for check in checks)
     passed = all(r.passed for r in results)
     uncertain = [r.uncertainty for r in results if r.uncertainty]
     return VerificationOutcome(

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from veena.planner.plan import Plan
+    from veena.sqldialect import SqlDialect
 
 
 class SourceProgress(BaseModel):
@@ -43,6 +44,11 @@ class Backend(Protocol):
     @property
     def name(self) -> str:
         """Short backend name recorded on implementations."""
+        ...
+
+    @property
+    def dialect(self) -> SqlDialect:
+        """The dialect verification must use to run against this engine."""
         ...
 
     def render(self, plan: Plan, *, as_of: datetime) -> tuple[str, tuple[str, ...]]:

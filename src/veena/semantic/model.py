@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from veena.errors import SemanticRefError
 from veena.refs import SemanticRef
+from veena.spec.model import validate_timezone
 
 _IDENT = r"^[a-z][a-z0-9_]*$"
+# Identifiers reach SQL unquoted, so they must be plain names; a relation may be qualified.
+_COLUMN = r"^[A-Za-z_][A-Za-z0-9_]*$"
+_RELATION = r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*){0,2}$"
 
 
 class _Versioned(BaseModel):
@@ -28,9 +32,9 @@ class Source(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str = Field(pattern=_IDENT)
-    table: str
-    primary_key: tuple[str, ...] = Field(min_length=1)
-    columns: tuple[str, ...] = Field(min_length=1)
+    table: str = Field(pattern=_RELATION)
+    primary_key: tuple[Annotated[str, Field(pattern=_COLUMN)], ...] = Field(min_length=1)
+    columns: tuple[Annotated[str, Field(pattern=_COLUMN)], ...] = Field(min_length=1)
 
 
 class Entity(_Versioned):
@@ -39,7 +43,7 @@ class Entity(_Versioned):
     model_config = ConfigDict(frozen=True)
 
     source: str
-    key: str
+    key: str = Field(pattern=_COLUMN)
     description: str = ""
 
 
@@ -60,8 +64,13 @@ class TimeRule(_Versioned):
     model_config = ConfigDict(frozen=True)
 
     source: str
-    timestamp_column: str
+    timestamp_column: str = Field(pattern=_COLUMN)
     timezone: str = "UTC"
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        return validate_timezone(value)
 
 
 class IdentityPolicy(_Versioned):
@@ -78,13 +87,13 @@ class IdentityPolicy(_Versioned):
     kind: Literal["point_in_time", "direct"] = "point_in_time"
     entity: SemanticRef
     fact_source: str
-    fact_key: str
-    fact_timestamp: str
+    fact_key: str = Field(pattern=_COLUMN)
+    fact_timestamp: str = Field(pattern=_COLUMN)
     mapping_source: str = ""
-    mapping_fact_key: str = ""
-    mapping_entity_key: str = ""
-    valid_from: str = ""
-    valid_to: str = ""
+    mapping_fact_key: str = Field(default="", pattern=rf"(?:{_COLUMN[1:-1]})?")
+    mapping_entity_key: str = Field(default="", pattern=rf"(?:{_COLUMN[1:-1]})?")
+    valid_from: str = Field(default="", pattern=rf"(?:{_COLUMN[1:-1]})?")
+    valid_to: str = Field(default="", pattern=rf"(?:{_COLUMN[1:-1]})?")
     description: str = ""
 
     @model_validator(mode="after")

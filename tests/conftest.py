@@ -35,7 +35,11 @@ def make_spec(
         {
             "asset_id": asset_id,
             "population": Population.model_validate(
-                {"entity": "semantic:customer@1", "include_inactive": include_inactive}
+                {
+                    "entity": "semantic:customer@1",
+                    # A bucketed asset cannot carry inactive members; the helper mirrors the rule.
+                    "include_inactive": include_inactive and time_bucket is TimeBucket.NONE,
+                }
             ),
             "grain": Grain.model_validate({"keys": keys, "time_bucket": time_bucket}),
             "measures": (

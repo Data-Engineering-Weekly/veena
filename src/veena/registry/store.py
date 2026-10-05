@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from veena.errors import RevisionConflictError
+from veena.errors import RegistryError, RevisionConflictError
 from veena.registry.events import Event
 
 if TYPE_CHECKING:
@@ -94,8 +94,13 @@ class SqliteEventStore:
         """Open or create the store at `path`."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(path, isolation_level=None)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.executescript(self._SCHEMA)
+        try:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.executescript(self._SCHEMA)
+        except sqlite3.Error as exc:
+            self._conn.close()
+            msg = f"{path} is not a usable registry: {exc}"
+            raise RegistryError(msg) from exc
 
     def close(self) -> None:
         """Close the underlying connection."""
@@ -120,7 +125,11 @@ class SqliteEventStore:
         Raises:
             RevisionConflictError: The store moved past `expected_revision`.
         """
-        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.Error as exc:
+            msg = f"cannot lock the registry: {exc}"
+            raise RegistryError(msg) from exc
         try:
             current = self.revision()
             if expected_revision is not None and expected_revision != current:
@@ -135,6 +144,13 @@ class SqliteEventStore:
                 ),
             )
             self._conn.execute("COMMIT")
+        except RevisionConflictError:
+            self._conn.execute("ROLLBACK")
+            raise
+        except sqlite3.Error as exc:
+            self._conn.execute("ROLLBACK")
+            msg = f"cannot append event {event.event_id}: {exc}"
+            raise RegistryError(msg) from exc
         except BaseException:
             self._conn.execute("ROLLBACK")
             raise

@@ -13,6 +13,7 @@ from veena.registry import (
     Event,
     ImplementationPlanned,
     MemoryEventStore,
+    ProposalApproved,
     ProposalOpened,
     QuestionOpened,
     Registry,
@@ -172,8 +173,9 @@ def test_deployment_requires_a_passing_verification(registry):
             )
         )
     )
-    with pytest.raises(RegistryError, match="unknown implementation"):
+    with pytest.raises(RegistryError, match="not part of proposal"):
         registry.append(ev(_verification("v0", passed=True)))
+    registry.append(ev(ProposalApproved(proposal_id="p1", reason="test")))
     registry.append(ev(ImplementationPlanned(proposal_id="p1", implementation=_implementation())))
     with pytest.raises(RegistryError, match="already exists"):
         registry.append(
@@ -236,7 +238,6 @@ def test_retirement_waits_for_commitments(registry):
 
 def test_registry_replays_from_store(registry):
     request_flow(registry)
-    store = registry._store
-    reopened = Registry(store)
+    reopened = Registry(registry.store)
     assert reopened.state.assets.keys() == registry.state.assets.keys()
     assert reopened.revision == 3

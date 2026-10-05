@@ -247,6 +247,15 @@ class ProposalOpened(_Payload):
     evidence_required: tuple[str, ...] = ()
     shared_asset: str | None = None
     dependents: tuple[str, ...] = ()
+    providers: dict[str, str] = Field(
+        default_factory=dict, description="dependent asset -> asset its plan reads"
+    )
+    assumed_active: dict[str, str | None] = Field(
+        default_factory=dict, description="asset -> active implementation when the proposal opened"
+    )
+    assumed_commitments: dict[str, tuple[str, ...]] = Field(
+        default_factory=dict, description="asset -> commitment ids when the proposal opened"
+    )
 
 
 class ProposalApproved(_Payload):
@@ -327,6 +336,9 @@ class DeploymentActivated(_Payload):
     verification_id: str
     assumed_revision: int = Field(ge=0)
     activated: dict[str, str] = Field(description="asset_id -> implementation_id")
+    verifications: dict[str, str] = Field(
+        default_factory=dict, description="asset_id -> verification_id that passed for it"
+    )
     replaced: dict[str, str | None] = Field(
         default_factory=dict, description="asset_id -> previous implementation_id, or None"
     )

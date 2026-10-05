@@ -74,6 +74,10 @@ class Backend(Protocol):
         """Remove the asset's interface, for a rollback of a first deployment."""
         ...
 
+    def drop(self, relation: str) -> None:
+        """Remove an implementation table or a measurement candidate that is no longer needed."""
+        ...
+
     @property
     def atomic_publish(self) -> bool:
         """Whether `publish_many` switches every interface in one transaction."""

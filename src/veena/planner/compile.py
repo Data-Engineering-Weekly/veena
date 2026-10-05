@@ -202,6 +202,26 @@ def compile_from_provider(
     if result.verdict is Verdict.CANNOT:
         msg = f"{provider.ref} cannot serve {spec.ref}: " + "; ".join(result.reasons)
         raise PlanError(msg)
+    if provider.grain.time_bucket not in BUCKET_COLUMN and not result.operations:
+        # An equal windowed provider: the consumer is a copy of it behind its own interface.
+        try:
+            entity = semantic.entity(spec.population.entity)
+        except SemanticRefError as exc:
+            msg = f"{spec.ref}: {exc}"
+            raise PlanError(msg) from exc
+        columns = (entity.key, *(m.name for m in provider.measures))
+        return Plan(
+            asset_id=spec.asset_id,
+            spec_version=spec.spec_version,
+            semantic_fingerprint=semantic.fingerprint(),
+            steps=(
+                AssetScan(
+                    asset_id=provider.asset_id,
+                    implementation_id=provider_implementation,
+                    columns=columns,
+                ),
+            ),
+        )
     unsupported = set(result.operations) - {Operation.WINDOW, Operation.POPULATION_JOIN}
     if unsupported:
         msg = f"{spec.ref} from {provider.ref} needs {sorted(unsupported)}, not supported yet"

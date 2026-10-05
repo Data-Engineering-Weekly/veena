@@ -89,7 +89,13 @@ class PostgresEventStore:
                 self._conn.rollback()
             finally:
                 self._conn.autocommit = True
-            raise RevisionConflictError(expected_revision or -1, self.revision()) from exc
+            # A serialization failure means another writer won; anything else is a real error.
+            if "serializ" in str(exc).lower() or type(exc).__name__ == "SerializationFailure":
+                raise RevisionConflictError(
+                    expected_revision if expected_revision is not None else -1, self.revision()
+                ) from exc
+            msg = f"cannot append event {event.event_id}: {exc}"
+            raise RegistryError(msg) from exc
         finally:
             self._conn.autocommit = True
         return int(inserted[0]) if inserted else 0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from veena.errors import RevisionConflictError
 from veena.registry.state import RegistryState
 from veena.registry.store import StoredEvent
 
@@ -13,12 +14,16 @@ if TYPE_CHECKING:
     from veena.registry.events import Event
     from veena.registry.store import EventStore
 
+RETRIES = 3
+
 
 class Registry:
     """Wraps an event store and keeps a projection current with it.
 
-    Every append validates the event against the current projection before it reaches the
-    store, so the store never holds an event the projection would reject.
+    Every append validates the event against the projection at the revision it will land on,
+    and tells the store that revision. A concurrent writer therefore cannot slip an event in
+    between validation and storage: the store refuses, the registry catches up, and it validates
+    again. The store never holds an event the projection rejects.
     """
 
     def __init__(self, store: EventStore) -> None:
@@ -34,6 +39,11 @@ class Registry:
         return self._state
 
     @property
+    def store(self) -> EventStore:
+        """The underlying store, for opening a second registry on the same log."""
+        return self._store
+
+    @property
     def revision(self) -> int:
         """The store's current revision."""
         return self._store.revision()
@@ -43,24 +53,37 @@ class Registry:
 
         Args:
             event: The event to record.
-            expected_revision: If given, fail unless the store is at this revision.
+            expected_revision: If given, fail unless the store is at exactly this revision. When
+                omitted, the registry still guards the append with its own revision and retries
+                after catching up with other writers.
 
         Returns:
             The `seq` the store assigned.
 
         Raises:
             RegistryError: The projection rejects the event.
-            RevisionConflictError: The store moved past `expected_revision`.
+            RevisionConflictError: `expected_revision` was given and the store moved past it, or
+                other writers kept winning for `RETRIES` attempts.
         """
-        self._catch_up()
-        trial = _copy_state(self._state)
-        trial.apply(StoredEvent(seq=self._state.revision + 1, event=event))
-        seq = self._store.append(event, expected_revision=expected_revision)
-        if seq == self._state.revision + 1:
-            self._state = trial
-        else:
+        attempts = RETRIES if expected_revision is None else 1
+        last: RevisionConflictError | None = None
+        for _ in range(attempts):
             self._catch_up()
-        return seq
+            if expected_revision is not None and expected_revision != self._state.revision:
+                raise RevisionConflictError(expected_revision, self._state.revision)
+            trial = self._state.copy()
+            trial.apply(StoredEvent(seq=self._state.revision + 1, event=event))
+            try:
+                seq = self._store.append(event, expected_revision=self._state.revision)
+            except RevisionConflictError as exc:
+                last = exc
+                if expected_revision is not None:
+                    raise
+                continue
+            self._state = trial
+            return seq
+        assert last is not None
+        raise last
 
     def events(self, *, after: int = 0) -> Iterator[StoredEvent]:
         """Read stored events after a revision."""
@@ -83,23 +106,3 @@ class Registry:
     def _catch_up(self) -> None:
         for stored in self._store.read(after=self._state.revision):
             self._state.apply(stored)
-
-
-def _copy_state(state: RegistryState) -> RegistryState:
-    copy = RegistryState()
-    copy.revision = state.revision
-    copy.assets = dict(state.assets)
-    copy.commitments = dict(state.commitments)
-    copy.questions = dict(state.questions)
-    copy.decisions = dict(state.decisions)
-    copy.proposals = dict(state.proposals)
-    copy.implementations = dict(state.implementations)
-    copy.classifications = list(state.classifications)
-    copy.drafts = list(state.drafts)
-    copy.usage = dict(state.usage)
-    copy.refresh_costs = dict(state.refresh_costs)
-    copy.unmanaged_reads = dict(state.unmanaged_reads)
-    copy.commitment_proposals = dict(state.commitment_proposals)
-    copy.verifications = dict(state.verifications)
-    copy.deployments = dict(state.deployments)
-    return copy

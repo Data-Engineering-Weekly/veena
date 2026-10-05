@@ -151,6 +151,14 @@ class SqlBackend:
             msg = f"publish {asset_id} -> {implementation_id}: {exc}"
             raise BackendError(msg) from exc
 
+    def drop(self, relation: str) -> None:
+        """Drop a table if it exists."""
+        try:
+            self._run(f"DROP TABLE IF EXISTS {relation}")
+        except Exception as exc:
+            msg = f"drop {relation}: {exc}"
+            raise BackendError(msg) from exc
+
     def unpublish(self, asset_id: str) -> None:
         """Drop the asset's view if it exists."""
         try:

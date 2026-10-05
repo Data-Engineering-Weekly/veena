@@ -95,9 +95,9 @@ def derive_shared(a: AssetSpec, b: AssetSpec, *, asset_id: str, origin: str) -> 
         provenance[f"serves.{source.asset_id}"] = OriginRef(
             name=source.asset_id, version=source.spec_version, origin_kind="asset"
         )
-    for key in ("identity_policy", "measures.spend_usd.calculation"):
-        if key in a.provenance:
-            provenance[key] = a.provenance[key]
+    for key, value in a.provenance.items():
+        if key == "identity_policy" or key.startswith("measures."):
+            provenance[key] = value
     return AssetSpec(
         asset_id=asset_id,
         spec_version=1,

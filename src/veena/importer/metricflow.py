@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from veena.importer.manifest import DbtProject
 
 _ADDITIVE = {"sum", "count", "sum_boolean"}
+_COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class Gap(BaseModel):
@@ -71,6 +73,15 @@ def semantic_from_project(project: DbtProject) -> SemanticImport:
         if primary is None:
             gaps.append(
                 Gap(asset_id=sm.model, text=f"semantic model {sm.name} has no primary entity")
+            )
+            continue
+        if not _COLUMN.match(primary.expr):
+            gaps.append(
+                Gap(
+                    asset_id=sm.model,
+                    text=f"entity {primary.name} on {sm.name} has expr {primary.expr!r}, which is "
+                    "not a column name; veena keys entities by a column",
+                )
             )
             continue
         columns = tuple(node.columns) or (primary.expr,)
@@ -157,6 +168,15 @@ def semantic_from_project(project: DbtProject) -> SemanticImport:
             continue
         rule = next((r for r in time_rules if r.source == sm.model), None)
         for foreign in (e for e in sm.entities if e.type == "foreign"):
+            if not _COLUMN.match(foreign.expr):
+                gaps.append(
+                    Gap(
+                        asset_id=sm.model,
+                        text=f"entity {foreign.name} on {sm.name} has expr {foreign.expr!r}, "
+                        "which is not a column name",
+                    )
+                )
+                continue
             if foreign.name not in primary_entities:
                 gaps.append(
                     Gap(

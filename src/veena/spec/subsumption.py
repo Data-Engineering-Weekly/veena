@@ -104,6 +104,12 @@ def _check_fixed_fields(provider: AssetSpec, consumer: AssetSpec, reasons: list[
         reasons.append(
             f"timezone differs: {provider.window.timezone} vs {consumer.window.timezone}"
         )
+    if provider.service.incorporate_within > consumer.service.incorporate_within:
+        reasons.append(
+            "freshness too slow: provider incorporates within "
+            f"{int(provider.service.incorporate_within.total_seconds())}s, consumer needs "
+            f"{int(consumer.service.incorporate_within.total_seconds())}s"
+        )
 
 
 def _check_grain(
@@ -230,4 +236,5 @@ def _same_meaning(provider: AssetSpec, consumer: AssetSpec) -> bool:
         and provider.window == consumer.window
         and set(provider.filters) == set(consumer.filters)
         and provider.identity_policy == consumer.identity_policy
+        and provider.service == consumer.service
     )

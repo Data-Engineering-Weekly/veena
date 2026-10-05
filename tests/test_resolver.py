@@ -248,7 +248,7 @@ def test_infeasible_freshness_opens_a_question(registry, semantic):
     request = Request(
         asset_id="customer_spend_30d",
         consumer="app:sales",
-        text="customer spend 30 days within 1 minute",
+        text="customer spend 30 days; reflect new data within 1 minute",
     )
     outcome = Resolver(
         registry,

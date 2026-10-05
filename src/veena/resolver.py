@@ -39,6 +39,7 @@ from veena.spec.model import (
     ServiceRequirements,
     TimeBucket,
     Window,
+    validate_timezone,
 )
 from veena.spec.subsumption import check
 
@@ -182,15 +183,26 @@ class Request(BaseModel):
 
 # ---- the resolver -----------------------------------------------------------------------------
 
-_DAYS = re.compile(
-    r"(?:previous|last|trailing|past)?\s*(\d+)\s*(?:complete\s+)?(?:calendar\s+)?"
-    r"(day|days|week|weeks)\b",
+# A window is a number with a day or week unit. A leading word such as "previous" marks it as the
+# asset's window rather than some other duration in the sentence.
+_WINDOW = re.compile(
+    r"\b(?P<lead>previous|last|trailing|past|over|rolling)?\W{0,3}(?P<n>\d+)[\s-]*"
+    r"(?:complete\s+)?(?:calendar\s+)?(?P<unit>day|days|week|weeks)\b",
     re.I,
 )
 _MINUTES = re.compile(r"within\s+(\d+)\s*(minute|minutes|second|seconds|hour|hours)\b", re.I)
-_TIMEZONE = re.compile(r"\b(UTC|[A-Z][A-Za-z]+/[A-Z][A-Za-z_]+)\b")
-_EXCLUDE = re.compile(r"\b(only|exclude|excluding)\b[^.]*\b(purchas|activ|spend)", re.I)
-_INCLUDE = re.compile(r"\binclud\w*\b[^.]*\bno\b", re.I)
+_FRESHNESS = re.compile(
+    r"\b(fresh|refresh|reflect|latenc|new data|available|arriv|update|incorporat)", re.I
+)
+_TIMEZONE = re.compile(r"\b(UTC|[A-Z][A-Za-z]+(?:/[A-Z][A-Za-z_+\-]+){1,2})\b")
+_EXCLUDE = re.compile(
+    r"\bexclud\w*\b[^.]*\binactive\b"
+    r"|\bexclud\w*\b[^.]*\bno\s+\w*\s*(?:purchas|order|activ)"
+    r"|\bonly\b[^.]*\b(?:customers|members|rows|those)\b[^.]*\b(?:who|with|that)\b[^.]*"
+    r"\b(?:purchas|order|spen|activ)",
+    re.I,
+)
+_INCLUDE = re.compile(r"\binclud\w*\b[^.]*\b(?:inactive|no\b|without\b)", re.I)
 _SLOT_SCOPES = ("workspace", "consumer", "asset")
 
 
@@ -250,17 +262,8 @@ class Resolver:
         if asset is None or not asset.request_text:
             msg = f"asset {asset_id!r} has no recorded request to resume"
             raise ResolutionError(msg)
-        seq = next(
-            (
-                s.seq
-                for s in self._registry.events()
-                if s.event.payload.kind == "asset_requested"
-                and getattr(s.event.payload, "asset_id", None) == asset_id
-            ),
-            0,
-        )
         request = Request(asset_id=asset_id, consumer=asset.requested_by, text=asset.request_text)
-        return self._resolve(request, message=f"message:m{seq}")
+        return self._resolve(request, message=f"message:m{asset.request_seq}")
 
     # ---- the pipeline ----
 
@@ -279,10 +282,20 @@ class Resolver:
             )
             return Refusal(reason=reason, probability=screen.probability)
 
+        draft_decision = self._decided(request, "draft")
+        if draft_decision == "abandon_request":
+            reason = "abandoned by a recorded decision on the draft question"
+            self._append(
+                RequestRefused(asset_id=request.asset_id, consumer=request.consumer, reason=reason),
+                causes=(message,),
+            )
+            return Refusal(reason=reason, probability=1.0)
         for attempt in range(self._policy.max_draft_retries + 1):
             drafted = self._draft_spec(request, message)
             if not isinstance(drafted, ResolvedSpec):
                 return drafted
+            if draft_decision == "accept_draft":
+                return self._accept(request, drafted, message)
             verdict = self._classify(
                 SITE_JUDGE,
                 "",
@@ -295,19 +308,7 @@ class Resolver:
                 and verdict.probability >= self._policy.judge_mismatch_threshold
             )
             if not mismatch:
-                self._append(SpecResolved(spec=drafted.spec), causes=(message,))
-                self._append(
-                    CommitmentRegistered(
-                        commitment_id=f"{request.asset_id}:{request.consumer}",
-                        asset_id=request.asset_id,
-                        consumer=request.consumer,
-                        incorporate_within_seconds=int(
-                            drafted.spec.service.incorporate_within.total_seconds()
-                        ),
-                    ),
-                    causes=(message,),
-                )
-                return drafted
+                return self._accept(request, drafted, message)
             if attempt < self._policy.max_draft_retries:
                 continue
             doubtful = self._doubtful_slots(request.asset_id)
@@ -324,6 +325,37 @@ class Resolver:
             )
         msg = "unreachable: judge loop exited without an outcome"
         raise ResolutionError(msg)
+
+    def _accept(self, request: Request, drafted: ResolvedSpec, message: str) -> ResolvedSpec:
+        self._append(SpecResolved(spec=drafted.spec), causes=(message,))
+        commitment_id = f"{request.asset_id}:{request.consumer}"
+        if commitment_id not in self._registry.state.commitments:
+            self._append(
+                CommitmentRegistered(
+                    commitment_id=commitment_id,
+                    asset_id=request.asset_id,
+                    consumer=request.consumer,
+                    incorporate_within_seconds=int(
+                        drafted.spec.service.incorporate_within.total_seconds()
+                    ),
+                ),
+                causes=(message,),
+            )
+        return drafted
+
+    def _decided(self, request: Request, slot: str) -> str | None:
+        """The latest in-scope decision on a question about `slot` for this request, if any."""
+        state = self._registry.state
+        best: Decision | None = None
+        for question in state.questions.values():
+            if question.slot != slot or question.decision_id is None:
+                continue
+            decision = state.decisions[question.decision_id]
+            if _scope_covers(decision, request, question) and (
+                best is None or decision.seq > best.seq
+            ):
+                best = decision
+        return best.selected if best else None
 
     def _draft_spec(self, request: Request, message: str) -> Outcome:
         provenance: dict[str, OriginRef] = {}
@@ -388,21 +420,34 @@ class Resolver:
             return identity
         policy_def = next(p for p in self._semantic.identity_policies if p.name == identity)
 
-        # window: deterministic extraction
-        days = _window_days(request.text)
-        if days is None:
+        # window: deterministic extraction, or a recorded decision, or a question
+        days, candidates = _window_days(request.text)
+        decided_days = self._decided(request, "window.complete_calendar_days")
+        if decided_days is not None and decided_days.isdigit():
+            days = int(decided_days)
+            provenance["window.complete_calendar_days"] = OriginRef(
+                name=self._decision_id(request, "window.complete_calendar_days"),
+                origin_kind="decision",
+            )
+        elif days is None:
+            offered = tuple(str(c) for c in candidates) or ("7", "30", "90")
+            if len(offered) < 2:
+                offered = (*offered, *(d for d in ("7", "30", "90") if d not in offered))[:3]
             return self._question(
                 request,
                 slot="window.complete_calendar_days",
-                alternatives=("7", "30", "90"),
+                alternatives=offered,
                 evidence=(
-                    "the request names no window",
-                    "complete calendar days end at the last UTC midnight",
+                    "the request names more than one duration"
+                    if candidates
+                    else "the request names no window",
+                    "complete calendar days end at the last midnight in the asset's timezone",
                     "a daily shared asset can serve any of these",
                 ),
                 causes=(message,),
             )
-        provenance["window.complete_calendar_days"] = origin
+        else:
+            provenance["window.complete_calendar_days"] = origin
         timezone = _timezone(request.text)
         if timezone is None:
             timezone = self._defaults.timezone
@@ -413,9 +458,23 @@ class Resolver:
         include_inactive, stated = _include_inactive(request.text)
         provenance["population.include_inactive"] = origin if stated else defaults_origin
 
-        # service: stated or default, and feasibility
+        # service: a recorded decision, the stated value, or the default; then feasibility
         seconds = _incorporate_seconds(request.text)
-        if seconds is None:
+        decided_service = self._decided(request, "service.incorporate_within")
+        if decided_service == "abandon_request":
+            reason = "abandoned by a recorded decision on the freshness question"
+            self._append(
+                RequestRefused(asset_id=request.asset_id, consumer=request.consumer, reason=reason),
+                causes=(message,),
+            )
+            return Refusal(reason=reason, probability=1.0)
+        if decided_service is not None and decided_service.startswith("accept_"):
+            seconds = int(decided_service.split("_")[1])
+            provenance["service.incorporate_within"] = OriginRef(
+                name=self._decision_id(request, "service.incorporate_within"),
+                origin_kind="decision",
+            )
+        elif seconds is None:
             seconds = self._defaults.incorporate_within_seconds
             provenance["service.incorporate_within"] = defaults_origin
         else:
@@ -487,12 +546,20 @@ class Resolver:
             provenance[slot] = origin
             return result.value.value
         ranked = result.ranked()
-        top = tuple(v.value for v, _ in ranked[: max(2, min(3, len(ranked)))])
+        scored = {v.value: p for v, p in ranked}
+        top = [v.value for v, _ in ranked[:3]]
+        for name in names:
+            if len(top) >= 2:
+                break
+            if name not in top:
+                top.append(name)
         evidence = tuple(
-            self._evidence(slot, value, probability, options[value], request)
-            for value, probability in ((v.value, p) for v, p in ranked if v.value in top)
+            self._evidence(slot, value, scored.get(value, 0.0), options[value], request)
+            for value in top
         )
-        return self._question(request, slot=slot, alternatives=top, evidence=evidence, causes=())
+        return self._question(
+            request, slot=slot, alternatives=tuple(top), evidence=evidence, causes=()
+        )
 
     def _reusable_decision(
         self, request: Request, slot: str, names: tuple[str, ...]
@@ -502,9 +569,7 @@ class Resolver:
         for question in state.questions.values():
             if question.slot != slot or question.decision_id is None:
                 continue
-            if set(question.alternatives) != set(names) and not set(question.alternatives) <= set(
-                names
-            ):
+            if set(question.alternatives) != set(names):
                 continue
             decision = state.decisions[question.decision_id]
             if decision.selected not in names:
@@ -547,6 +612,16 @@ class Resolver:
                 if check(asset.spec, probe).can_serve:
                     out.append(asset.spec.ref)
         return out
+
+    def _decision_id(self, request: Request, slot: str) -> str:
+        state = self._registry.state
+        for question in sorted(state.questions.values(), key=lambda q: -q.seq):
+            if question.slot == slot and question.decision_id is not None:
+                decision = state.decisions[question.decision_id]
+                if _scope_covers(decision, request, question):
+                    return decision.decision_id
+        msg = f"no decision on {slot} covers {request.asset_id}"
+        raise ResolutionError(msg)
 
     def _doubtful_slots(self, asset_id: str) -> list[str]:
         calls = [
@@ -666,17 +741,36 @@ class Resolver:
 # ---- deterministic extraction -----------------------------------------------------------------
 
 
-def _window_days(text: str) -> int | None:
-    match = _DAYS.search(text)
-    if match is None:
-        return None
-    count = int(match.group(1))
-    return count * 7 if match.group(2).lower().startswith("week") else count
+def _window_days(text: str) -> tuple[int | None, tuple[int, ...]]:
+    """The window the text asks for, and every duration it mentions.
+
+    A duration led by a word such as "previous" wins. Without a lead word, a single duration is
+    taken; several are returned as candidates for a question.
+    """
+    led: list[int] = []
+    others: list[int] = []
+    for match in _WINDOW.finditer(text):
+        count = int(match.group("n"))
+        if match.group("unit").lower().startswith("week"):
+            count *= 7
+        if count <= 0:
+            continue
+        (led if match.group("lead") else others).append(count)
+    candidates = tuple(dict.fromkeys([*led, *others]))
+    if len(led) == 1:
+        return led[0], candidates
+    if not led and len(others) == 1:
+        return others[0], candidates
+    return None, candidates
 
 
 def _timezone(text: str) -> str | None:
-    match = _TIMEZONE.search(text)
-    return match.group(1) if match else None
+    for match in _TIMEZONE.finditer(text):
+        try:
+            return validate_timezone(match.group(1))
+        except ValueError:
+            continue
+    return None
 
 
 def _include_inactive(text: str) -> tuple[bool, bool]:
@@ -688,16 +782,19 @@ def _include_inactive(text: str) -> tuple[bool, bool]:
 
 
 def _incorporate_seconds(text: str) -> int | None:
-    match = _MINUTES.search(text)
-    if match is None:
-        return None
-    value = int(match.group(1))
-    unit = match.group(2).lower()
-    if unit.startswith("hour"):
-        return value * 3600
-    if unit.startswith("minute"):
-        return value * 60
-    return value
+    """A freshness bound: `within N units` in a sentence that talks about fresh or new data."""
+    for sentence in re.split(r"[.;\n]", text):
+        match = _MINUTES.search(sentence)
+        if match is None or not _FRESHNESS.search(sentence):
+            continue
+        value = int(match.group(1))
+        unit = match.group(2).lower()
+        if unit.startswith("hour"):
+            return value * 3600
+        if unit.startswith("minute"):
+            return value * 60
+        return value
+    return None
 
 
 def _summary(spec: AssetSpec) -> str:

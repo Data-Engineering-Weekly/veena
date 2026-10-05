@@ -8,7 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from veena.errors import SemanticRefError, SpecError
-from veena.semantic.model import SemanticModel
+from veena.semantic.model import SemanticModel, Source
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,15 +53,16 @@ def _check_internal_names(model: SemanticModel) -> None:
     for policy in model.identity_policies:
         model.entity(policy.entity)
         fact = model.source(policy.fact_source)
-        mapping = model.source(policy.mapping_source)
-        for column, source in (
-            (policy.fact_key, fact),
-            (policy.fact_timestamp, fact),
-            (policy.mapping_fact_key, mapping),
-            (policy.mapping_entity_key, mapping),
-            (policy.valid_from, mapping),
-            (policy.valid_to, mapping),
-        ):
+        checks: list[tuple[str, Source]] = [(policy.fact_key, fact), (policy.fact_timestamp, fact)]
+        if policy.kind == "point_in_time":
+            mapping = model.source(policy.mapping_source)
+            checks += [
+                (policy.mapping_fact_key, mapping),
+                (policy.mapping_entity_key, mapping),
+                (policy.valid_from, mapping),
+                (policy.valid_to, mapping),
+            ]
+        for column, source in checks:
             if column not in source.columns:
                 msg = f"identity policy {policy.name} column {column!r} is not in {source.name}"
                 raise SemanticRefError(msg)

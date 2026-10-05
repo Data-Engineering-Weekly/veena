@@ -11,7 +11,7 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```
 
-All three checks must pass before a change is done. Current state: 134 tests, 0 lint findings, 0 type errors across 66 files.
+All three checks must pass before a change is done. Current state: 151 tests plus one live-Postgres skip, 0 lint findings, 0 type errors across 82 files.
 
 Everything runs through `uv`. The `python3` on this machine is not used, and `uv run python -c "..."` replaces any inline snippet.
 
@@ -39,6 +39,10 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 * `veena.policy` holds `ReorganizationPolicy`: minimum measured benefit, a cap on reorganizations per asset per period, and whether a person must approve.
 * `veena.coordinator` runs the loop: `propose` decides between reading from a provider, creating a shared intermediate, or building direct, and records what it considered; `implement`, `verify`, and `deploy` act on every affected asset, shared asset first. `activate` runs all of it with re-planning up to the repair bound. `deploy` refuses when any affected asset's commitments changed since the proposal opened, and switches every interface in one transaction when the backend can, or one at a time with an `InterfaceSwitched` event each when it cannot. `rollback` repoints interfaces to what the deployment replaced. `approve`, `reject`, and `resume` manage proposals that wait for a person.
 * `veena.models` holds the two protocols and their adapters. `KeywordClassifier` is the offline baseline and CLI default; it scores word overlap and abstains with a uniform probability on verdict contexts. `ClaudeClassifier` constrains Claude's structured output to the closed set; `ClaudeDrafter` writes prose. `JevClassifier` posts to an assumed HTTP contract behind an injectable transport. `RecordingClassifier` and `ReplayClassifier` capture and replay real answers for offline tests. `calibration.py` turns labeled predictions into a reliability table. `closed_set` builds the enum a classifier must choose from.
+* `veena.importer` reads a dbt manifest (`manifest.py`), records models as observed assets and exposures as commitments (`dbt.py`), maps MetricFlow to a semantic model with gaps (`metricflow.py`), imports query history into usage, refresh cost, unmanaged reads, and proposed commitments (`history.py`), infers one draft spec per observed asset as a question (`infer.py`), confirms drafts into specs (`confirm.py`), and reports equivalence sets and consolidation proposals (`report.py`). Nothing it imports becomes meaning without a decision.
+* `veena.backends.sql` is the shared SQL backend over any connection with `execute(sql)`; DuckDB and Snowflake subclass it and override the timestamp literal, zone conversion, bucket, and DDL hooks. Snowflake's DDL autocommits, so it reports non-atomic publishing and the coordinator stages switches.
+* `veena.registry.postgres` is the multi-writer store behind the optional `postgres` dependency group. The revision check runs in a serializable transaction.
+* `veena.scenario.dbt_fixture` generates the shoply manifest and query history.
 * `veena.resolver` turns a request into a spec, a question, or a refusal. It screens the text, picks each ref slot from a closed set, extracts numbers deterministically, fills unstated service terms from `WorkspaceDefaults`, reuses scoped decisions, judges the assembled draft, and records every model call as an event. Thresholds come from `ResolutionPolicy`.
 * `veena.registry` is the event log and its projections. Two event kinds were added in phase 2: `ImplementationPlanned` and `ImplementationRefreshed`. `VerificationRecorded` now carries structured `CheckResult`s and source progress.
 * `veena.scenario` builds the synthetic workspace and holds the reference SQL that tests compare against.
@@ -68,6 +72,8 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 **A model never sees the whole problem.** The classifier gets a typed context and a closed option set per slot. The drafter gets structured alternatives and evidence with no chosen answer. Neither gets the planner's SQL or verification checks. The resolver assembles the spec; the models only nominate.
 
 **Probabilities are claims until measured.** Every classifier call site keeps a labeled set under `scenario/labels/` and a log under `.veena/calibration/`. `veena models calibration <site>` prints the reliability table. Tune thresholds from that table, not from intuition.
+
+**Imported state is observed, never assumed.** A dbt model becomes an asset with status `observed` and its SQL on record. Its meaning arrives as a draft question whose slots carry probabilities, and a spec exists only after a `DecisionRecorded`. The inference refuses to guess the grain when the model's output lacks the entity's key column, which is how it declines to call a postal-code rollup a customer asset.
 
 **Deploy is guarded twice.** The coordinator compares the asset's commitments to the set it saw when the proposal opened and raises `RevisionConflictError` if they differ. The store then checks the exact revision on the append. The first guard explains why; the second catches any writer.
 
@@ -121,8 +127,8 @@ The full requirements for each phase, with ids and acceptance tests, live in [pr
 2. **Done.** Deterministic planner, DuckDB backend, independent verification, coordinator. The planner produces the point-in-time join; verification catches the naive one and the coordinator escalates with a question.
 3. **Done.** Overlap proposals: the shared daily asset is derived from two windowed specs, all three are verified, activation is atomic, the 30-day asset is rewired behind its view, and rollback restores it.
 4. **Done.** Request resolution: text to spec through a classifier over closed sets, questions with evidence, scoped decision reuse, screening, judging, and a calibration report.
-5. **Next.** Shadow mode: import a dbt manifest, infer specs as questions, classify query history, run subsumption across the graph, and add the Snowflake backend.
-6. Operations: the operator view ordered by unmet commitments, the brakes (freeze, pin, replay), repair of live assets, and graded retirement.
+5. **Done.** Shadow mode on the generated shoply fixture: dbt import, MetricFlow to semantic model, query history to usage and cost, inferred drafts, batch confirmation, the duplicates report, consolidation proposals in shadow, and the Snowflake backend.
+6. **Next.** Operations: the operator view ordered by unmet commitments, the brakes (freeze, pin, replay), repair of live assets, and graded retirement.
 
 Open questions that would change the design, and what settles each:
 

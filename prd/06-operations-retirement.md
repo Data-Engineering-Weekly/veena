@@ -1,6 +1,6 @@
 # Phase 6: Operations and retirement
 
-Status: Planned. Depends on phases 3 and 5.
+Status: Next. Phases 3 and 5 are done.
 
 ## Goal
 

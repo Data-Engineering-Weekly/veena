@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import duckdb
 import typer
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from veena.models import Classifier, Drafter
     from veena.registry.state import RegistryState
     from veena.resolver import Outcome, Resolver
+    from veena.semantic.model import SemanticModel
     from veena.spec.model import AssetSpec
 
 app = typer.Typer(no_args_is_help=True, help="Veena: the self-organizing data stack.")
@@ -223,6 +224,16 @@ DrafterChoice = Annotated[
     str,
     typer.Option("--drafter", help="none (template prose) or claude (needs ANTHROPIC_API_KEY)."),
 ]
+
+
+def _autonomy(name: str) -> Literal["shadow", "assisted", "autonomous"]:
+    if name == "shadow":
+        return "shadow"
+    if name == "assisted":
+        return "assisted"
+    if name == "autonomous":
+        return "autonomous"
+    raise _fail(VeenaError("autonomy must be shadow, assisted, or autonomous"))
 
 
 def _classifier(name: str) -> Classifier:
@@ -452,6 +463,9 @@ def asset_activate(
     max_reorganizations: Annotated[
         int, typer.Option(help="Cap on share deployments per asset in the policy period.")
     ] = 1,
+    autonomy: Annotated[
+        str, typer.Option(help="shadow records proposals only; assisted; autonomous.")
+    ] = "assisted",
 ) -> None:
     """Find overlap, then propose, implement, verify, and deploy on the scenario database."""
     try:
@@ -463,6 +477,7 @@ def asset_activate(
             require_approval=require_approval,
             min_benefit=min_benefit,
             max_reorganizations=max_reorganizations,
+            autonomy=autonomy,
         )
         outcome = coordinator.activate(asset_id, as_of=_as_of(as_of))
     except VeenaError as exc:
@@ -657,6 +672,7 @@ def _coordinator(
     require_approval: bool = False,
     min_benefit: int = 1,
     max_reorganizations: int = 1,
+    autonomy: str = "assisted",
 ) -> tuple[Registry, Coordinator]:
     from veena.policy import ReorganizationPolicy
 
@@ -664,6 +680,7 @@ def _coordinator(
     model = load_semantic_model(_semantic_path(semantic))
     backend = DuckDBBackend(duckdb.connect(str(scenario)))
     policy = ReorganizationPolicy(
+        autonomy=_autonomy(autonomy),
         require_approval=require_approval,
         min_benefit_rows=min_benefit,
         max_reorganizations_per_period=max_reorganizations,
@@ -971,3 +988,236 @@ def models_calibration(
         log.append(record)
         records.append(record)
     typer.echo(calibration_report(site, tuple(records)).render())
+
+
+import_app = typer.Typer(no_args_is_help=True, help="Import observed state from a warehouse.")
+report_app = typer.Typer(no_args_is_help=True, help="Reports over the imported graph.")
+app.add_typer(import_app, name="import")
+app.add_typer(report_app, name="report")
+
+DEFAULT_IMPORTED_SEMANTIC = Path(".veena/semantic.yaml")
+
+
+@scenario_app.command("dbt")
+def scenario_dbt(
+    out: Annotated[
+        Path, typer.Option(help="Directory for manifest.json and query_history.jsonl.")
+    ] = Path(".veena/dbt"),
+    history_days: int = 14,
+) -> None:
+    """Write the bundled e-commerce dbt manifest and query history fixture."""
+    from veena.scenario.dbt_fixture import DbtFixtureConfig, write_fixture
+
+    manifest, history = write_fixture(out, DbtFixtureConfig(history_days=history_days))
+    typer.echo(f"wrote {manifest} and {history}")
+
+
+@import_app.command("dbt")
+def import_dbt(
+    manifest: Annotated[Path, typer.Argument(help="dbt manifest.json")],
+    history: Annotated[Path | None, typer.Option(help="Query history JSONL to import too.")] = None,
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    semantic_out: Annotated[
+        Path, typer.Option(help="Where to write the semantic model derived from MetricFlow.")
+    ] = DEFAULT_IMPORTED_SEMANTIC,
+) -> None:
+    """Import models as observed assets, exposures as commitments, MetricFlow as meaning.
+
+    With `--history`, query history becomes usage, refresh cost, unmanaged reads, and proposals.
+    """
+    import yaml
+
+    from veena.importer import (
+        import_history,
+        import_project,
+        load_history,
+        load_manifest,
+        semantic_from_project,
+    )
+    from veena.registry import QuestionOpened
+
+    try:
+        project = load_manifest(manifest)
+        reg = _open_registry(registry)
+        report = import_project(reg, project)
+        typer.echo(
+            f"imported {project.project_name}: {report.assets_added} assets added, "
+            f"{report.assets_updated} updated, {report.assets_unchanged} unchanged; "
+            f"{report.commitments_added} commitments added, {report.commitments_unchanged} kept"
+        )
+        imported = semantic_from_project(project)
+        semantic_out.parent.mkdir(parents=True, exist_ok=True)
+        semantic_out.write_text(
+            "# Derived from MetricFlow definitions in the dbt manifest. People own this file.\n"
+            + yaml.safe_dump(_semantic_yaml(imported.model), sort_keys=False)
+        )
+        typer.echo(
+            f"semantic model: {len(imported.model.entities)} entities, "
+            f"{len(imported.model.calculations)} calculations, "
+            f"{len(imported.model.time_rules)} time rules, "
+            f"{len(imported.model.identity_policies)} identity policies -> {semantic_out}"
+        )
+        recorded = 0
+        state = reg.state
+        for gap in imported.gaps:
+            if gap.asset_id not in state.assets:
+                typer.echo(f"  gap: {gap.text}")
+                continue
+            already = any(
+                q.slot == "semantic_gap" and q.asset_id == gap.asset_id and q.question == gap.text
+                for q in state.questions.values()
+            )
+            if already:
+                continue
+            count = sum(1 for q in reg.state.questions.values() if q.asset_id == gap.asset_id)
+            reg.append(
+                Event(
+                    actor="importer:metricflow",
+                    authority=f"import:{project.project_name}",
+                    causes=(f"asset:{gap.asset_id}",),
+                    payload=QuestionOpened(
+                        question_id=f"{gap.asset_id}_q{count + 1}",
+                        asset_id=gap.asset_id,
+                        question=gap.text,
+                        alternatives=("define_in_semantic_model", "leave_as_derived", "ignore"),
+                        slot="semantic_gap",
+                    ),
+                )
+            )
+            recorded += 1
+        typer.echo(f"semantic gaps recorded as questions: {recorded}")
+        if history is not None:
+            h = import_history(reg, load_history(history))
+            typer.echo(
+                f"history: {h.queries} queries, {h.matched} matched assets, "
+                f"{h.usage_rows} usage rows, "
+                f"{h.refresh_cost_rows} refresh costs, {h.unmanaged_reads} unmanaged reads, "
+                f"{h.commitments_proposed} commitments proposed"
+            )
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+
+
+def _semantic_yaml(model: SemanticModel) -> dict[str, object]:
+    data = model.model_dump(mode="json")
+    for policy in data["identity_policies"]:
+        policy["entity"] = f"semantic:{policy['entity']['name']}@{policy['entity']['version']}"
+        for key in (
+            "mapping_source",
+            "mapping_fact_key",
+            "mapping_entity_key",
+            "valid_from",
+            "valid_to",
+        ):
+            if not policy.get(key):
+                policy.pop(key, None)
+    return data
+
+
+@import_app.command("infer")
+def import_infer(
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    semantic: Annotated[
+        Path, typer.Option("--semantic", help="Semantic model YAML.")
+    ] = DEFAULT_IMPORTED_SEMANTIC,
+    classifier: ClassifierChoice = "keyword",
+    drafter: DrafterChoice = "none",
+    only: Annotated[
+        list[str] | None, typer.Option(help="Asset ids to infer; default all observed.")
+    ] = None,
+) -> None:
+    """Infer a draft spec for every observed asset and open one question each."""
+    from veena.importer import infer_drafts
+
+    try:
+        reg = _open_registry(registry)
+        model = load_semantic_model(semantic)
+        drafts = infer_drafts(
+            reg, model, _classifier(classifier), drafter=_drafter(drafter), only=only
+        )
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    for d in sorted(drafts, key=lambda d: -d.min_probability):
+        gaps = f" open: {', '.join(d.open_slots)}" if d.open_slots else ""
+        typer.echo(f"{d.asset_id:<28} weakest slot p={d.min_probability:.2f}{gaps}")
+    typer.echo(f"{len(drafts)} drafts opened as questions")
+
+
+@question_app.command("confirm")
+def question_confirm(
+    above: Annotated[
+        float, typer.Option(help="Confirm drafts whose weakest slot is at or above this.")
+    ] = 0.9,
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    semantic: Annotated[
+        Path, typer.Option("--semantic", help="Semantic model YAML.")
+    ] = DEFAULT_IMPORTED_SEMANTIC,
+    actor: str = "user:owner",
+    authority: str = "role:data_owner",
+) -> None:
+    """Confirm inferred drafts in one batch, plus any a person already answered confirm_draft."""
+    from veena.importer import confirm_drafts
+
+    try:
+        reg = _open_registry(registry)
+        model = load_semantic_model(semantic)
+        confirmed = confirm_drafts(reg, model, above=above, actor=actor, authority=authority)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    for asset_id in confirmed:
+        typer.echo(f"confirmed {asset_id}")
+    typer.echo(f"{len(confirmed)} specs resolved; registry at revision {reg.revision}")
+
+
+@report_app.command("duplicates")
+def report_duplicates(
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    propose: Annotated[
+        bool, typer.Option(help="Record one consolidation proposal per equivalence set.")
+    ] = False,
+    autonomy: Annotated[
+        str, typer.Option(help="Policy autonomy to record on proposals.")
+    ] = "shadow",
+) -> None:
+    """Group specified assets that mean the same thing, with consumers and measured cost."""
+    from veena.importer import duplicates_report, propose_consolidations
+    from veena.policy import ReorganizationPolicy
+
+    reg = _open_registry(registry)
+    report = duplicates_report(reg)
+    typer.echo(report.render())
+    if propose:
+        opened = propose_consolidations(
+            reg,
+            report,
+            as_of=datetime.now(UTC),
+            policy=ReorganizationPolicy(autonomy=_autonomy(autonomy)),
+        )
+        for pid in opened:
+            typer.echo(f"proposed {pid} ({autonomy}: recorded, not activated)")
+
+
+@report_app.command("usage")
+def report_usage(registry: RegistryPath = DEFAULT_REGISTRY, asset_id: str = "") -> None:
+    """Readers per asset with cadence, class, and whether a commitment exists or is proposed."""
+    state = _open_registry(registry).state
+    for (aid, consumer), u in sorted(state.usage.items()):
+        if asset_id and aid != asset_id:
+            continue
+        has = any(state.commitments[c].consumer == consumer for c in state.assets[aid].commitments)
+        proposed = (aid, consumer) in state.commitment_proposals
+        unmanaged = (aid, consumer) in state.unmanaged_reads
+        flag = "committed" if has else "proposed" if proposed else "unmanaged" if unmanaged else "-"
+        typer.echo(
+            f"{aid:<28} {consumer:<24} {u.reader_class:<10} p={u.reader_probability or 0:.2f} "
+            f"{u.queries:>5} queries {u.runs_per_day:>7.2f}/day {u.distinct_hours:>2}h {flag}"
+        )
+    if state.refresh_costs:
+        typer.echo("refresh cost over the window:")
+        for aid, c in sorted(state.refresh_costs.items(), key=lambda kv: -kv[1].credits):
+            if asset_id and aid != asset_id:
+                continue
+            typer.echo(
+                f"  {aid:<28} {c.runs:>3} rebuilds {c.bytes_scanned / 1e9:>8.2f} GB "
+                f"{c.credits:>9.4f} credits"
+            )

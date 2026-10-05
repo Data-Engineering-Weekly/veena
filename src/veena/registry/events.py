@@ -37,6 +37,11 @@ class EventKind(StrEnum):
     CLASSIFICATION_PRODUCED = "classification_produced"
     DRAFT_PRODUCED = "draft_produced"
     REQUEST_REFUSED = "request_refused"
+    ASSET_OBSERVED = "asset_observed"
+    USAGE_OBSERVED = "usage_observed"
+    REFRESH_COST_OBSERVED = "refresh_cost_observed"
+    UNMANAGED_READ_OBSERVED = "unmanaged_read_observed"
+    COMMITMENT_PROPOSED = "commitment_proposed"
 
 
 class _Payload(BaseModel):
@@ -95,6 +100,10 @@ class QuestionOpened(_Payload):
     slot: str = ""
     consumer: str = ""
     evidence: tuple[str, ...] = ()
+    draft: dict[str, str] = Field(
+        default_factory=dict, description="Slot -> inferred value, or 'open' for a gap."
+    )
+    draft_probabilities: dict[str, float] = Field(default_factory=dict)
 
 
 class ClassificationProduced(_Payload):
@@ -109,6 +118,81 @@ class ClassificationProduced(_Payload):
     value: str
     probability: float = Field(ge=0.0, le=1.0)
     alternatives: dict[str, float] = Field(default_factory=dict)
+
+
+class AssetObserved(_Payload):
+    """An asset that already exists in a warehouse, imported as observed state.
+
+    Nothing about its meaning is assumed; the spec arrives later as a confirmed draft.
+    """
+
+    kind: Literal[EventKind.ASSET_OBSERVED] = EventKind.ASSET_OBSERVED
+    asset_id: str
+    origin: str = Field(description="Where it came from, for example dbt:model.shoply.fct_orders")
+    relation: str = Field(description="Fully qualified table or view name")
+    layer: str = ""
+    materialized: str = ""
+    owner: str = ""
+    description: str = ""
+    columns: dict[str, str] = Field(default_factory=dict)
+    tags: tuple[str, ...] = ()
+    checksum: str = ""
+    sql: str = ""
+    depends_on_assets: tuple[str, ...] = ()
+    depends_on_sources: tuple[str, ...] = ()
+
+
+class UsageObserved(_Payload):
+    """Reads of one asset by one consumer over an observation window."""
+
+    kind: Literal[EventKind.USAGE_OBSERVED] = EventKind.USAGE_OBSERVED
+    asset_id: str
+    consumer: str
+    role: str = ""
+    queries: int = Field(ge=0)
+    bytes_scanned: int = Field(ge=0)
+    credits: float = Field(ge=0.0)
+    first_seen: datetime
+    last_seen: datetime
+    runs_per_day: float = Field(ge=0.0)
+    distinct_hours: int = Field(ge=0, le=24)
+    reader_class: str = ""
+    reader_probability: float | None = None
+
+
+class RefreshCostObserved(_Payload):
+    """What it cost to rebuild one asset over the observation window, measured from history."""
+
+    kind: Literal[EventKind.REFRESH_COST_OBSERVED] = EventKind.REFRESH_COST_OBSERVED
+    asset_id: str
+    runs: int = Field(ge=0)
+    bytes_scanned: int = Field(ge=0)
+    credits: float = Field(ge=0.0)
+    window_start: datetime
+    window_end: datetime
+
+
+class UnmanagedReadObserved(_Payload):
+    """A consumer read an internal relation directly instead of a published interface."""
+
+    kind: Literal[EventKind.UNMANAGED_READ_OBSERVED] = EventKind.UNMANAGED_READ_OBSERVED
+    asset_id: str
+    consumer: str
+    queries: int = Field(ge=0)
+    last_seen: datetime
+    reason: str
+
+
+class CommitmentProposed(_Payload):
+    """The engine thinks a recurring reader should hold a commitment, and asks."""
+
+    kind: Literal[EventKind.COMMITMENT_PROPOSED] = EventKind.COMMITMENT_PROPOSED
+    asset_id: str
+    consumer: str
+    reader_class: str
+    probability: float = Field(ge=0.0, le=1.0)
+    suggested_incorporate_within_seconds: int = Field(ge=0)
+    rationale: str
 
 
 class RequestRefused(_Payload):
@@ -156,7 +240,7 @@ class ProposalOpened(_Payload):
     changes: tuple[str, ...] = Field(min_length=1)
     affected_assets: tuple[str, ...]
     assumed_revision: int = Field(ge=0)
-    kind_of_change: Literal["direct", "share", "repair"] = "direct"
+    kind_of_change: Literal["direct", "share", "repair", "consolidate"] = "direct"
     alternatives: tuple[str, ...] = ()
     cost_current_rows: int | None = None
     cost_proposed_rows: int | None = None
@@ -291,7 +375,12 @@ Payload = Annotated[
     | AssetRetired
     | ClassificationProduced
     | DraftProduced
-    | RequestRefused,
+    | RequestRefused
+    | AssetObserved
+    | UsageObserved
+    | RefreshCostObserved
+    | UnmanagedReadObserved
+    | CommitmentProposed,
     Field(discriminator="kind"),
 ]
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from veena.errors import SemanticRefError
 from veena.refs import SemanticRef
@@ -66,22 +67,42 @@ class TimeRule(_Versioned):
 class IdentityPolicy(_Versioned):
     """How a fact row attaches to an entity instance.
 
-    The mapping source holds rows with a validity interval. The fact's timestamp must fall
-    inside `[valid_from, valid_to)`; a null `valid_to` means still valid.
+    `kind` is `point_in_time` when a mapping source holds rows with a validity interval and the
+    fact's timestamp must fall inside `[valid_from, valid_to)`, a null `valid_to` meaning still
+    valid. It is `direct` when the fact row carries the entity key itself in `fact_key`; the
+    mapping fields are then empty.
     """
 
     model_config = ConfigDict(frozen=True)
 
+    kind: Literal["point_in_time", "direct"] = "point_in_time"
     entity: SemanticRef
     fact_source: str
     fact_key: str
     fact_timestamp: str
-    mapping_source: str
-    mapping_fact_key: str
-    mapping_entity_key: str
-    valid_from: str
-    valid_to: str
+    mapping_source: str = ""
+    mapping_fact_key: str = ""
+    mapping_entity_key: str = ""
+    valid_from: str = ""
+    valid_to: str = ""
     description: str = ""
+
+    @model_validator(mode="after")
+    def _mapping_fields_match_kind(self) -> IdentityPolicy:
+        mapping = (
+            self.mapping_source,
+            self.mapping_fact_key,
+            self.mapping_entity_key,
+            self.valid_from,
+            self.valid_to,
+        )
+        if self.kind == "point_in_time" and not all(mapping):
+            msg = f"identity policy {self.name} is point_in_time and needs every mapping field"
+            raise ValueError(msg)
+        if self.kind == "direct" and any(mapping):
+            msg = f"identity policy {self.name} is direct and must not name a mapping source"
+            raise ValueError(msg)
+        return self
 
 
 class SemanticModel(BaseModel):

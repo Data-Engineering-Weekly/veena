@@ -11,10 +11,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from veena.errors import RegistryError
 from veena.evidence import CheckResult, Grade
 from veena.registry.events import (
+    AssetObserved,
     AssetRequested,
     AssetRetired,
     BackfillProgressed,
     ClassificationProduced,
+    CommitmentProposed,
     CommitmentRegistered,
     CommitmentReleased,
     DecisionRecorded,
@@ -28,8 +30,11 @@ from veena.registry.events import (
     ProposalOpened,
     ProposalRejected,
     QuestionOpened,
+    RefreshCostObserved,
     RequestRefused,
     SpecResolved,
+    UnmanagedReadObserved,
+    UsageObserved,
     VerificationRecorded,
 )
 from veena.spec.model import AssetSpec
@@ -43,6 +48,7 @@ class AssetStatus(StrEnum):
     """Where an asset is in its life."""
 
     REQUESTED = "requested"
+    OBSERVED = "observed"
     SPECIFIED = "specified"
     ACTIVE = "active"
     RETIRED = "retired"
@@ -58,6 +64,7 @@ class Asset(BaseModel):
     requested_by: str = ""
     request_text: str = ""
     refused: str = ""
+    observed: AssetObserved | None = None
     spec: AssetSpec | None = None
     active_implementation: str | None = None
     commitments: tuple[str, ...] = ()
@@ -96,6 +103,8 @@ class Question(BaseModel):
     slot: str = ""
     consumer: str = ""
     evidence: tuple[str, ...] = ()
+    draft: dict[str, str] = Field(default_factory=dict)
+    draft_probabilities: dict[str, float] = Field(default_factory=dict)
     decision_id: str | None = None
     seq: int
 
@@ -201,6 +210,10 @@ class RegistryState:
         self.revision = 0
         self.classifications: list[ModelCall] = []
         self.drafts: list[ModelCall] = []
+        self.usage: dict[tuple[str, str], UsageObserved] = {}
+        self.refresh_costs: dict[str, RefreshCostObserved] = {}
+        self.unmanaged_reads: dict[tuple[str, str], UnmanagedReadObserved] = {}
+        self.commitment_proposals: dict[tuple[str, str], CommitmentProposed] = {}
         self.assets: dict[str, Asset] = {}
         self.commitments: dict[str, Commitment] = {}
         self.questions: dict[str, Question] = {}
@@ -244,7 +257,7 @@ class RegistryState:
             case SpecResolved():
                 asset = self._asset(payload.spec.asset_id, seq)
                 status = asset.status
-                if status in {AssetStatus.REQUESTED, AssetStatus.SPECIFIED}:
+                if status in {AssetStatus.REQUESTED, AssetStatus.OBSERVED, AssetStatus.SPECIFIED}:
                     status = AssetStatus.SPECIFIED
                 self.assets[asset.asset_id] = _touch(
                     asset.model_copy(update={"spec": payload.spec, "status": status}), seq
@@ -288,8 +301,39 @@ class RegistryState:
                     slot=payload.slot,
                     consumer=payload.consumer,
                     evidence=payload.evidence,
+                    draft=dict(payload.draft),
+                    draft_probabilities=dict(payload.draft_probabilities),
                     seq=seq,
                 )
+            case AssetObserved():
+                asset = self.assets.get(payload.asset_id)
+                if asset is None:
+                    asset = Asset(asset_id=payload.asset_id, status=AssetStatus.OBSERVED)
+                status = asset.status
+                if status is AssetStatus.REQUESTED:
+                    status = AssetStatus.OBSERVED
+                self.assets[payload.asset_id] = _touch(
+                    asset.model_copy(
+                        update={
+                            "observed": payload,
+                            "status": status,
+                            "depends_on": payload.depends_on_assets,
+                        }
+                    ),
+                    seq,
+                )
+            case UsageObserved():
+                self._asset(payload.asset_id, seq)
+                self.usage[(payload.asset_id, payload.consumer)] = payload
+            case RefreshCostObserved():
+                self._asset(payload.asset_id, seq)
+                self.refresh_costs[payload.asset_id] = payload
+            case UnmanagedReadObserved():
+                self._asset(payload.asset_id, seq)
+                self.unmanaged_reads[(payload.asset_id, payload.consumer)] = payload
+            case CommitmentProposed():
+                self._asset(payload.asset_id, seq)
+                self.commitment_proposals[(payload.asset_id, payload.consumer)] = payload
             case ClassificationProduced():
                 self.classifications.append(ModelCall(seq=seq, event_payload=payload))
             case DraftProduced():

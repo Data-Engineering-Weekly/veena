@@ -67,7 +67,9 @@ def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
         policy = semantic.identity_policy(spec.identity_policy)
         calculations = [semantic.calculation(m.calculation) for m in spec.measures]
         entity_source = semantic.source(entity.source)
-        mapping_source = semantic.source(policy.mapping_source)
+        mapping_source = (
+            semantic.source(policy.mapping_source) if policy.kind == "point_in_time" else None
+        )
     except SemanticRefError as exc:
         msg = f"{spec.ref}: {exc}"
         raise PlanError(msg) from exc
@@ -103,7 +105,8 @@ def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
         msg = f"{spec.ref}: {len(rules)} time rules cover {fact_source_name!r}: {names}"
         raise PlanError(msg)
     rule = rules[0]
-    if entity.key in fact_source.columns:
+    direct = policy.kind == "direct"
+    if not direct and entity.key in fact_source.columns:
         msg = (
             f"{spec.ref}: fact source {fact_source_name!r} already has a column named "
             f"{entity.key!r}; the identity join cannot add it"
@@ -137,8 +140,8 @@ def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
         ),
         IdentityJoin(
             policy=spec.identity_policy,
-            mapping_source=mapping_source.name,
-            mapping_table=mapping_source.table,
+            mapping_source=mapping_source.name if mapping_source else "",
+            mapping_table=mapping_source.table if mapping_source else "",
             fact_key=policy.fact_key,
             mapping_fact_key=policy.mapping_fact_key,
             mapping_entity_key=policy.mapping_entity_key,
@@ -146,6 +149,7 @@ def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
             fact_timestamp=policy.fact_timestamp,
             valid_from=policy.valid_from,
             valid_to=policy.valid_to,
+            direct=direct,
         ),
         Aggregate(
             entity_key=entity.key,
@@ -263,7 +267,7 @@ def dependencies(plan: Plan) -> tuple[Dependency, ...]:
                 deps.append(
                     Dependency(name=step.asset_id, kind="asset", version=step.implementation_id)
                 )
-            case IdentityJoin():
+            case IdentityJoin() if not step.direct:
                 deps.append(
                     Dependency(
                         name=step.mapping_source, kind="source", version=plan.semantic_fingerprint

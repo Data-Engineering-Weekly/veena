@@ -83,7 +83,7 @@ def build_checks(
         entity = semantic.entity(spec.population.entity)
         policy = semantic.identity_policy(spec.identity_policy)
         entity_source = semantic.source(entity.source)
-        mapping = semantic.source(policy.mapping_source)
+        mapping = semantic.source(policy.mapping_source) if policy.kind == "point_in_time" else None
         fact = semantic.source(policy.fact_source)
         calculations = {m.name: semantic.calculation(m.calculation) for m in spec.measures}
     except SemanticRefError as exc:
@@ -153,16 +153,23 @@ def build_checks(
         )
 
     # Reference attribution written from the identity policy, independent of any candidate.
-    attributed = (
-        f"SELECT m.{policy.mapping_entity_key} AS {key}, f.*\n"
-        f"    FROM {fact.table} f\n"
-        f"    JOIN {mapping.table} m\n"
-        f"      ON m.{policy.mapping_fact_key} = f.{policy.fact_key}\n"
-        f"     AND f.{policy.fact_timestamp} >= m.{policy.valid_from}\n"
-        f"     AND (m.{policy.valid_to} IS NULL "
-        f"OR f.{policy.fact_timestamp} < m.{policy.valid_to})\n"
-        f"    WHERE {in_window}"
-    )
+    if mapping is None:
+        attributed = (
+            f"SELECT f.{policy.fact_key} AS {key}, f.* EXCLUDE ({policy.fact_key})\n"
+            f"    FROM {fact.table} f\n"
+            f"    WHERE {in_window}"
+        )
+    else:
+        attributed = (
+            f"SELECT m.{policy.mapping_entity_key} AS {key}, f.*\n"
+            f"    FROM {fact.table} f\n"
+            f"    JOIN {mapping.table} m\n"
+            f"      ON m.{policy.mapping_fact_key} = f.{policy.fact_key}\n"
+            f"     AND f.{policy.fact_timestamp} >= m.{policy.valid_from}\n"
+            f"     AND (m.{policy.valid_to} IS NULL "
+            f"OR f.{policy.fact_timestamp} < m.{policy.valid_to})\n"
+            f"    WHERE {in_window}"
+        )
     for measure in spec.measures:
         calc = calculations[measure.name]
         agg = _AGG.get(measure.aggregation)

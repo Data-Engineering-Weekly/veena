@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -17,6 +19,13 @@ class ReorganizationPolicy(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     ref: str = "policy:reorganization@1"
+    autonomy: Literal["shadow", "assisted", "autonomous"] = Field(
+        default="assisted",
+        description=(
+            "shadow records proposals and activates nothing; assisted activates under the other "
+            "knobs; autonomous activates without approval."
+        ),
+    )
     min_benefit_rows: int = Field(default=1, ge=0)
     max_reorganizations_per_period: int = Field(default=1, ge=0)
     period_days: int = Field(default=30, ge=1)

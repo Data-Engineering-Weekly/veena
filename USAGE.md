@@ -550,3 +550,98 @@ The bundled labeled set is small, and on it the keyword baseline is right every 
 | `--drafter claude` | as above | Phrases questions from structured alternatives and evidence. |
 
 No test calls a model. Tests use scripted adapters, and `RecordingClassifier` / `ReplayClassifier` let a real model's answers drive a test offline.
+
+## Walkthrough, continued: shadow mode on a dbt project
+
+Everything so far ran on assets the engine built. Most warehouses already have hundreds of models nobody dares refactor. Shadow mode imports them as observed state, infers what each one means as a question, and finds the duplicates from specifications. It activates nothing.
+
+No real project was available, so a generated one stands in: shoply, an e-commerce project with 41 models, 15 raw sources, 5 exposures, MetricFlow definitions, and two weeks of warehouse query history. Three teams own three 30-day customer spend models.
+
+```bash
+uv run veena scenario dbt
+uv run veena import dbt .veena/dbt/manifest.json --history .veena/dbt/query_history.jsonl
+```
+
+```
+imported shoply: 41 assets added, 0 updated, 0 unchanged; 14 commitments added, 0 kept
+semantic model: 4 entities, 4 calculations, 3 time rules, 4 identity policies -> .veena/semantic.yaml
+semantic gaps recorded as questions: 2
+history: 5419 queries, 5419 matched assets, 22 usage rows, 26 refresh costs, 1 unmanaged reads, 8 commitments proposed
+```
+
+Four things happened. Every model is now an asset with status `observed`, its SQL and dependencies on record and no spec. Every exposure edge became a commitment from `exposure:<name>`. The MetricFlow semantic models became a semantic model written to `.veena/semantic.yaml`: primary entities, additive measures as calculations, aggregation time dimensions as time rules, and foreign entities as direct identity policies. The two ratio metrics could not be represented and were recorded as questions on their models. The query history became usage per reader, rebuild cost per model, one unmanaged read of an intermediate table, and eight proposed commitments for readers who hold none.
+
+Run the import again and nothing changes. A model whose checksum changed is updated.
+
+### Inferring what each model means
+
+```bash
+uv run veena import infer
+```
+
+```
+...
+stg_orders                   weakest slot p=0.00 open: identity_policy, shape, window.complete_calendar_days
+41 drafts opened as questions
+```
+
+One question per asset, slot `inferred_spec`, with a draft: entity and calculation from the classifier with probabilities, window and time bucket from the name and SQL, inactive members from the join shape, identity policy from the semantic model. A slot the engine cannot fill is `open` with the reason. Staging views have `shape` open because the spec IR describes aggregates. The household model has its entity open because its output has no `customer_id`: the grain is a postal code, and the engine says so instead of guessing.
+
+### Confirming in a batch
+
+```bash
+uv run veena question confirm --above 0.5
+```
+
+```
+confirmed cust_spend_last_30d
+confirmed customer_spend_30d
+confirmed customer_spend_30d_v2
+confirmed customer_spend_90d
+4 specs resolved; registry at revision 245
+```
+
+Each confirmation is a `DecisionRecorded` scoped to the asset, then a `SpecResolved` whose provenance points at the decision. Drafts with an open slot are never confirmed by a threshold. The bar is 0.5 here because the keyword baseline splits four USD measures almost evenly; with `--classifier claude` the default 0.9 applies. Answer any question by hand with `veena question answer <id> --select confirm_draft` and the next `confirm` resolves it.
+
+### The duplicates nobody dared to clean up
+
+```bash
+uv run veena report duplicates --propose
+```
+
+```
+4 assets with confirmed specifications
+equivalence set 1: 3 assets, 0.0282 credits rebuilding them over the window
+  cust_spend_last_30d          cust_spend_last_30d@1        owner marketing-analytics    14 rebuilds, 0.0087 credits; exposure:marketing_dashboard
+  customer_spend_30d           customer_spend_30d@1         owner sales-engineering      14 rebuilds, 0.0096 credits; exposure:sales_app
+  customer_spend_30d_v2        customer_spend_30d_v2@1      owner support-tools          14 rebuilds, 0.0099 credits; exposure:support_agent
+  evidence: same population semantic:customer@1, identity policy semantic:fct_orders_customer_direct@1, measures sum(semantic:net_order_usd@1), window 30 days in UTC
+  evidence: decided by specification equality, not by column names or sample rows
+proposed cust_spend_last_30d_consolidate_p1 (shadow: recorded, not activated)
+```
+
+Three owners, three tables, one meaning. The evidence is the specification, not the column names. The cost is measured from the rebuilds in query history. The proposal is recorded with kind `consolidate` and stays open. In shadow autonomy `veena asset activate` and `veena proposal approve` refuse with a policy error after recording the proposal.
+
+### Who reads what
+
+```bash
+uv run veena report usage --asset-id customer_spend_30d
+```
+
+```
+customer_spend_30d           user:svc_sales_app       managed    p=0.90  3385 queries  241.84/day 24h proposed
+refresh cost over the window:
+  customer_spend_30d            14 rebuilds     4.19 GB    0.0096 credits
+```
+
+The sales application reads the table around the clock. The reader class comes from cadence rules, the offline baseline for this call site. The engine proposes a commitment for the observed user because dbt declared the exposure as `exposure:sales_app` and nothing links that name to the warehouse principal `svc_sales_app`. That mapping is an owner's to provide.
+
+### Snowflake
+
+The same plans render for Snowflake:
+
+```bash
+uv run veena asset plan customer_spend_30d   # DuckDB SQL
+```
+
+Rendering to Snowflake happens through `SnowflakeBackend` in code, with a connection factory you supply. It uses `TIMESTAMP_TZ` casts and `CONVERT_TIMEZONE`, creates transient tables, and stages interface switches because Snowflake DDL autocommits. Rendering is tested offline against sqlglot's Snowflake dialect. Execution was not run against a live account in this build.

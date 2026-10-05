@@ -21,6 +21,9 @@ dependencies = [
 veena = "veena.cli:app"
 
 [dependency-groups]
+postgres = [
+    "psycopg[binary]>=3.2",
+]
 dev = [
     "mypy>=1.17",
     "pytest>=8.4",
@@ -66,6 +69,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D", "ANN"]
+"src/veena/scenario/dbt_fixture.py" = ["E501"]  # a data file: model SQL and column maps
 
 [tool.mypy]
 python_version = "3.14"
@@ -74,7 +78,7 @@ plugins = ["pydantic.mypy"]
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["duckdb.*"]
+module = ["duckdb.*", "psycopg", "psycopg.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

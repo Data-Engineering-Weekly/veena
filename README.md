@@ -14,7 +14,7 @@ Veena is the engine that owns that rewiring.
 
 ## Status
 
-Early build. Phases 1 to 4 are done. These parts exist and are tested:
+Early build. Phases 1 to 5 are done. These parts exist and are tested:
 
 | Part | What it does |
 |---|---|
@@ -31,9 +31,12 @@ Early build. Phases 1 to 4 are done. These parts exist and are tested:
 | Policy | Minimum measured benefit, a reorganization cap, and optional human approval gate every share proposal. Thresholds turn classifier probabilities into questions. |
 | Resolver | Turns a request in a consumer's words into a spec, a question, or a refusal. Refs come only from the semantic model's closed sets. Every model call is an event. |
 | Models | Two kinds behind two protocols: a classifier (Jev adapter, Claude adapter, offline keyword baseline) and a drafter (Claude). Record, replay, and a calibration report. |
+| Importer | Reads a dbt manifest into observed assets and exposure commitments, MetricFlow into a semantic model with gaps as questions, and query history into usage, refresh cost, unmanaged reads, and proposed commitments. Infers a draft spec per asset as a question; confirms batches above a threshold. |
+| Reports | Duplicates: equivalence sets across confirmed specs with owners, consumers, and measured credits, plus consolidation proposals recorded in shadow. Usage: readers per asset with cadence and class. |
+| Snowflake | A second backend behind the same protocol. Renders Snowflake SQL, stages interface switches because its DDL autocommits. Render is tested offline; execution needs a live connection. |
 | CLI | `veena` wraps all of the above. |
 
-Not built yet, in order: shadow mode on a real warehouse with dbt import and a Snowflake backend, then the operator view, brakes, repair, and retirement.
+Not built yet: the operator view, brakes, repair of live assets, and graded retirement. Phase 6.
 
 ## Quick start
 
@@ -47,6 +50,16 @@ uv run veena asset activate customer_spend_90d
 uv run veena asset request --consumer agent:crm --asset-id household_spend_90d \
   --text "household spending over the previous 90 complete calendar days"
 uv run veena asset show customer_spend_30d
+```
+
+Shadow mode on a dbt project, using the bundled e-commerce fixture:
+
+```bash
+uv run veena scenario dbt
+uv run veena import dbt .veena/dbt/manifest.json --history .veena/dbt/query_history.jsonl
+uv run veena import infer
+uv run veena question confirm --above 0.5
+uv run veena report duplicates --propose
 ```
 
 See [USAGE.md](USAGE.md) for every command and the file formats. See [prd/](prd/README.md) for the requirements of every phase. See [DEVELOPERS.md](DEVELOPERS.md) to work on the code. See [AGENTS.md](AGENTS.md) for the vocabulary and the rules that apply to every change.

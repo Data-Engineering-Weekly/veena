@@ -43,17 +43,18 @@ src/veena/
   spec/           The specification IR and subsumption rules.
   semantic/       The semantic model: entities, sources, calculations, time rules, identity policies.
   planner/        Plan model and the deterministic compiler from spec (or spec plus provider) to plan.
-  backends/       Backend protocol and the DuckDB backend: render, materialize, publish, measure.
+  backends/       Backend protocol; SqlBackend base with dialect hooks; DuckDB and Snowflake backends.
   verification/   Checks generated from spec and semantic model. Never imports the planner.
   coordinator.py  Propose (direct, from provider, or share), implement, verify, deploy, rollback.
   resolver.py     Request text to spec, question, or refusal. Classifier picks refs; drafter phrases questions.
+  importer/       dbt manifest, MetricFlow, and query history to observed state; inferred drafts; duplicates report.
   overlap.py      Overlap detection and derivation of a shared intermediate, from specs only.
   policy.py       Workspace policies the engine reads before it acts.
   models/         Classifier and Drafter protocols; adapters: keyword (offline), Claude, Jev; record/replay; calibration.
   evidence.py     Grade and CheckResult, shared by verification and the registry.
   calendar.py     Complete-day window arithmetic in a named timezone.
-  registry/       Event-sourced registry: events, store, projections.
-  scenario/       Synthetic DuckDB workspace that replays the article's story.
+  registry/       Event-sourced registry: events, SQLite and Postgres stores, projections.
+  scenario/       Synthetic DuckDB workspace and the shoply dbt manifest and query history fixture.
 tests/            Mirrors src/veena. One test module per source module.
 prd/              One requirements document per phase, with ids and acceptance tests.
 ```

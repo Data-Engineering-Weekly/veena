@@ -9,8 +9,8 @@ One document per phase, plus the vision that every phase serves. Read [00-vision
 | [02-planner-verification.md](02-planner-verification.md) | Spec to implementation, independent verification, first activation | Done |
 | [03-overlap-reorganization.md](03-overlap-reorganization.md) | Shared intermediates, rewiring, the activation guard | Done |
 | [04-request-resolution.md](04-request-resolution.md) | Natural language to spec, questions and decisions | Done |
-| [05-shadow-mode.md](05-shadow-mode.md) | Import a real warehouse, propose without acting, first backend | Next |
-| [06-operations-retirement.md](06-operations-retirement.md) | Operator view, brakes, repair, retirement | Planned |
+| [05-shadow-mode.md](05-shadow-mode.md) | Import a real warehouse, propose without acting, first backend | Done |
+| [06-operations-retirement.md](06-operations-retirement.md) | Operator view, brakes, repair, retirement | Next |
 
 ## How these docs work
 

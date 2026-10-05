@@ -1,6 +1,6 @@
 # Phase 5: Shadow mode on a real warehouse
 
-Status: Next. Depends on phase 2; phases 3 and 4 are done and feed it.
+Status: Done, Oct 5 2026, on a generated fixture. Six items are partial and noted under Evidence.
 
 ## Goal
 
@@ -60,6 +60,28 @@ A platform team points veena at a dbt manifest and a Snowflake account. The engi
 
 * **R5.13** The registry supports Postgres as a store when more than one writer exists. SQLite stays the default for one writer.
   Acceptance: the store test suite runs against both; the Postgres store uses a serializable transaction for the revision check.
+
+## Evidence
+
+* 151 tests pass, 17 of them new in this phase, and one live Postgres test skips without `VEENA_POSTGRES_DSN`. `ruff check`, `ruff format --check`, and `mypy --strict` are clean across 82 files.
+* No real dbt project was available, so the import fixture is generated: `veena scenario dbt` writes a manifest for an e-commerce project, shoply, with 41 models across staging, intermediate, and marts, 15 raw sources, 5 exposures, 4 MetricFlow semantic models, 6 metrics, and 5,419 query history rows over 14 days from nine warehouse users. Three teams own three 30-day spend models that mean the same thing. The generator and the generated files are both checked in under `src/veena/scenario/dbt_fixture.py` and `src/veena/scenario/dbt/`.
+* The CLI walkthrough in USAGE.md ran on Oct 5 2026: import recorded 41 observed assets and 14 exposure commitments, derived a semantic model with 4 entities, 4 calculations, 3 time rules, and 4 direct identity policies, recorded 2 semantic gaps as questions, and imported history into 22 usage rows, 26 refresh costs, 1 unmanaged read, and 8 proposed commitments. Inference opened 41 draft questions. Confirming at 0.5 resolved the four spend specs. The duplicates report grouped the three 30-day models with their owners, consumers, and measured credits, and one consolidation proposal was recorded in shadow.
+* R5.1: re-import changes nothing; a changed checksum updates one asset. `tests/importer/test_import.py`.
+* R5.2, R5.2a, R5.2b: no imported asset reaches `specified` without a decision; drafts carry a probability per slot and open slots for gaps; `veena question confirm --above` records a decision and a spec for each confirmed draft and honors a person's `confirm_draft` answer.
+* R5.4: MetricFlow becomes a semantic model with direct identity policies from foreign entities; ratio metrics and non-additive measures become gaps attached to their model.
+* R5.5, R5.6: subsumption across confirmed specs finds the equivalence set of three and renders consumers, rebuild counts, and credits per member.
+* R5.7: `autonomy: shadow` makes `activate` and `approve` raise `PolicyError` after recording the proposal.
+* R5.8, R5.11: the Snowflake backend renders both bundled plans to SQL that parses in sqlglot's Snowflake dialect, and a conformance test runs the protocol sequence against DuckDB and a fake Snowflake connection.
+* R5.12: a read of an intermediate-layer relation by an analyst becomes `UnmanagedReadObserved`.
+
+Partial:
+
+* R5.3a: reader classification uses deterministic cadence rules as the offline baseline, not a model. The `Classifier` protocol is the seam; the rules abstain on other contexts. The sales application appears twice, as `exposure:sales_app` from dbt and `user:svc_sales_app` from the warehouse, and nothing links them, so the engine proposes a commitment for the observed reader. Linking warehouse principals to exposures needs an owner-provided mapping.
+* R5.2c: the drafter writes the rationale when one is configured; the CLI default is a template.
+* R5.8: live execution against Snowflake was not run. There is no sandbox account here. The backend takes any DB-API connection factory and does not depend on the Snowflake connector package.
+* R5.9: cost is measured from query history as bytes scanned and cloud-services credits per rebuild. Warehouse compute credits need `WAREHOUSE_METERING_HISTORY`, which the fixture does not model. Proposals in this phase carry measured rebuild cost per member, not a projected post-consolidation cost.
+* R5.13: the Postgres store is implemented and its SQL flow is tested with a fake connection. The live roundtrip test exists and skips without a DSN.
+* The spec IR describes aggregates. Staging views and wide fact tables get a draft with `shape` open, which is the honest answer: the IR cannot hold them yet.
 
 ## Out of scope
 

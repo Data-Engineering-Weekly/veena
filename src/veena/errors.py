@@ -60,5 +60,9 @@ class ModelError(VeenaError):
     """A model adapter received an answer it cannot use."""
 
 
+class PolicyError(VeenaError):
+    """A workspace policy forbids the action."""
+
+
 class ResolutionError(VeenaError):
     """The resolver could not proceed with a request."""

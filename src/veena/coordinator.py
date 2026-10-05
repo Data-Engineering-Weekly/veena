@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from veena.calendar import window_bounds
-from veena.errors import CoordinationError, RevisionConflictError
+from veena.errors import CoordinationError, PolicyError, RevisionConflictError
 from veena.overlap import derive_shared, find_overlap, shared_asset_id
 from veena.planner.compile import (
     compile_from_provider,
@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from veena.spec.model import AssetSpec
 
 Planner = Callable[["AssetSpec", "SemanticModel", int], Plan]
-ChangeKind = Literal["direct", "share", "repair"]
+ChangeKind = Literal["direct", "share", "repair", "consolidate"]
 
 
 def default_planner(spec: AssetSpec, semantic: SemanticModel, attempt: int) -> Plan:
@@ -154,8 +154,19 @@ class Coordinator:
     # ---- entry points -------------------------------------------------------------------
 
     def activate(self, asset_id: str, *, as_of: datetime) -> ActivationOutcome:
-        """Decide how to build the asset, then run the loop unless a person must approve first."""
+        """Decide how to build the asset, then run the loop unless a person must approve first.
+
+        Raises:
+            PolicyError: The workspace runs in shadow autonomy; proposals are recorded only.
+        """
         proposed = self.propose(asset_id, as_of=as_of)
+        if self._policy.autonomy == "shadow":
+            proposal_id = proposed if isinstance(proposed, str) else proposed.proposal_id
+            msg = (
+                f"{self._policy.ref} sets autonomy to shadow: recorded {proposal_id} and will not "
+                "implement, verify, or deploy"
+            )
+            raise PolicyError(msg)
         if isinstance(proposed, str):
             return ActivationOutcome(
                 asset_id=asset_id,
@@ -205,7 +216,14 @@ class Coordinator:
         )
 
     def approve(self, proposal_id: str, *, as_of: datetime, reason: str = "") -> ActivationOutcome:
-        """Record approval of an open proposal and run it."""
+        """Record approval of an open proposal and run it.
+
+        Raises:
+            PolicyError: The workspace runs in shadow autonomy.
+        """
+        if self._policy.autonomy == "shadow":
+            msg = f"{self._policy.ref} sets autonomy to shadow: nothing is activated"
+            raise PolicyError(msg)
         proposal = self._proposal(proposal_id)
         if proposal.status is not ProposalStatus.OPEN:
             msg = f"proposal {proposal_id} is {proposal.status}, not open"

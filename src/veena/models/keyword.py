@@ -85,19 +85,20 @@ class KeywordClassifier:
                 alternatives=tuple((m, uniform) for m in members[1:]),
                 model_id=self.model_id,
             )
-        text_words = _words(_context_text(context))
+        counts = _word_counts(_context_text(context))
         descriptions: dict[str, str] = {}
         raw = getattr(context, "option_descriptions", None)
         if isinstance(raw, dict):
             descriptions = {str(k): str(v) for k, v in raw.items()}
         # A word in the option's own name is stronger evidence than one in its description,
-        # because descriptions of sibling options often share vocabulary.
+        # because descriptions of sibling options often share vocabulary. Each match counts as
+        # often as the word appears in the text, so the thing the request keeps naming wins.
         scores: dict[T, float] = {}
         for option in options:
             name_words = _words(option.value.replace("_", " "))
             description_words = _words(descriptions.get(option.value, "")) - name_words
-            scores[option] = 3.0 * len(text_words & name_words) + 1.0 * len(
-                text_words & description_words
+            scores[option] = 3.0 * sum(counts.get(w, 0) for w in name_words) + 1.0 * sum(
+                counts.get(w, 0) for w in description_words
             )
         total = sum(scores.values())
         if total == 0:
@@ -124,10 +125,14 @@ def _context_text(context: BaseModel) -> str:
     return " ".join(parts)
 
 
-def _words(text: str) -> set[str]:
-    out: set[str] = set()
+def _word_counts(text: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for word in _WORD.findall(text.lower()):
         stem = word[:-1] if len(word) > 3 and word.endswith("s") else word
         if stem not in _STOP:
-            out.add(stem)
-    return out
+            counts[stem] = counts.get(stem, 0) + 1
+    return counts
+
+
+def _words(text: str) -> set[str]:
+    return set(_word_counts(text))

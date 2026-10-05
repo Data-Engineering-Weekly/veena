@@ -1,10 +1,12 @@
 """Event-sourced registry of assets, commitments, decisions, proposals, and deployments."""
 
 from veena.registry.events import (
+    AssetObserved,
     AssetRequested,
     AssetRetired,
     BackfillProgressed,
     ClassificationProduced,
+    CommitmentProposed,
     CommitmentRegistered,
     CommitmentReleased,
     DecisionRecorded,
@@ -21,8 +23,11 @@ from veena.registry.events import (
     ProposalOpened,
     ProposalRejected,
     QuestionOpened,
+    RefreshCostObserved,
     RequestRefused,
     SpecResolved,
+    UnmanagedReadObserved,
+    UsageObserved,
     VerificationRecorded,
 )
 from veena.registry.registry import Registry
@@ -30,10 +35,12 @@ from veena.registry.state import RegistryState
 from veena.registry.store import EventStore, MemoryEventStore, SqliteEventStore, StoredEvent
 
 __all__ = [
+    "AssetObserved",
     "AssetRequested",
     "AssetRetired",
     "BackfillProgressed",
     "ClassificationProduced",
+    "CommitmentProposed",
     "CommitmentRegistered",
     "CommitmentReleased",
     "DecisionRecorded",
@@ -52,11 +59,14 @@ __all__ = [
     "ProposalOpened",
     "ProposalRejected",
     "QuestionOpened",
+    "RefreshCostObserved",
     "Registry",
     "RegistryState",
     "RequestRefused",
     "SpecResolved",
     "SqliteEventStore",
     "StoredEvent",
+    "UnmanagedReadObserved",
+    "UsageObserved",
     "VerificationRecorded",
 ]

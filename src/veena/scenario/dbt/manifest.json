@@ -1,0 +1,5551 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.9.4",
+    "generated_at": "2026-10-01T06:00:00+00:00",
+    "invocation_id": "8d7c0a1e-6b3f-4c2e-9f1a-3e5b7c9d2f40",
+    "env": {},
+    "project_name": "shoply",
+    "project_id": "035a39925def92b3778798728530d031",
+    "user_id": null,
+    "send_anonymous_usage_stats": false,
+    "adapter_type": "snowflake"
+  },
+  "nodes": {
+    "model.shoply.stg_customers": {
+      "unique_id": "model.shoply.stg_customers",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_customers",
+      "alias": "stg_customers",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_customers.sql",
+      "original_file_path": "models/staging/stg_customers.sql",
+      "relation_name": "analytics.staging.stg_customers",
+      "description": "Staged customers: renamed and typed, no business logic. One row per registered customer.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "email": {
+          "name": "email",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "created_at": {
+          "name": "created_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "region": {
+          "name": "region",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.customers"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "customers"
+        ]
+      ],
+      "raw_code": "select customer_id, email, created_at, region from {{ source('raw', 'customers') }}",
+      "compiled_code": "select customer_id, email, created_at, region from raw.public.customers",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "272d34d7ac4d8bffc3d5882621ce406f6ec5c96b7fc47d9255aec2c4ab1b51d6"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_customers"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_addresses": {
+      "unique_id": "model.shoply.stg_addresses",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_addresses",
+      "alias": "stg_addresses",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_addresses.sql",
+      "original_file_path": "models/staging/stg_addresses.sql",
+      "relation_name": "analytics.staging.stg_addresses",
+      "description": "Staged addresses: renamed and typed, no business logic. Customer addresses with a type: shipping, billing, residence.",
+      "columns": {
+        "address_id": {
+          "name": "address_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "address_type": {
+          "name": "address_type",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "postal_code": {
+          "name": "postal_code",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "description": "",
+          "data_type": "timestamp_tz"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.addresses"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "addresses"
+        ]
+      ],
+      "raw_code": "select address_id, customer_id, address_type, postal_code, valid_from, valid_to from {{ source('raw', 'addresses') }}",
+      "compiled_code": "select address_id, customer_id, address_type, postal_code, valid_from, valid_to from raw.public.addresses",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "549424bcec5ddf69d82a25bd8caa96c7542cd6aaaef0ee04035393a0995afcf2"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_addresses"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_accounts": {
+      "unique_id": "model.shoply.stg_accounts",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_accounts",
+      "alias": "stg_accounts",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_accounts.sql",
+      "original_file_path": "models/staging/stg_accounts.sql",
+      "relation_name": "analytics.staging.stg_accounts",
+      "description": "Staged accounts: renamed and typed, no business logic. Login accounts. An account may change hands between customers.",
+      "columns": {
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "opened_at": {
+          "name": "opened_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "status": {
+          "name": "status",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.accounts"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "accounts"
+        ]
+      ],
+      "raw_code": "select account_id, opened_at, status from {{ source('raw', 'accounts') }}",
+      "compiled_code": "select account_id, opened_at, status from raw.public.accounts",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "5fe096a85a780c199f2acfc55746736c6316e3c78cbefcd7ca327036cdf35b6f"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_accounts"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_account_customer_map": {
+      "unique_id": "model.shoply.stg_account_customer_map",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_account_customer_map",
+      "alias": "stg_account_customer_map",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_account_customer_map.sql",
+      "original_file_path": "models/staging/stg_account_customer_map.sql",
+      "relation_name": "analytics.staging.stg_account_customer_map",
+      "description": "Staged account_customer_map: renamed and typed, no business logic. Which customer owned an account over which interval.",
+      "columns": {
+        "mapping_id": {
+          "name": "mapping_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "description": "",
+          "data_type": "timestamp_tz"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.account_customer_map"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "account_customer_map"
+        ]
+      ],
+      "raw_code": "select mapping_id, account_id, customer_id, valid_from, valid_to from {{ source('raw', 'account_customer_map') }}",
+      "compiled_code": "select mapping_id, account_id, customer_id, valid_from, valid_to from raw.public.account_customer_map",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "de4587325228bbf7ed4fd9bdc0d30bf57ff655f371542c48b74f559638eb04fd"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_account_customer_map"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_orders": {
+      "unique_id": "model.shoply.stg_orders",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_orders",
+      "alias": "stg_orders",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_orders.sql",
+      "original_file_path": "models/staging/stg_orders.sql",
+      "relation_name": "analytics.staging.stg_orders",
+      "description": "Staged orders: renamed and typed, no business logic. One row per order header.",
+      "columns": {
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "ordered_at": {
+          "name": "ordered_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "status": {
+          "name": "status",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "currency": {
+          "name": "currency",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "shipping_address_id": {
+          "name": "shipping_address_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.orders"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "orders"
+        ]
+      ],
+      "raw_code": "select order_id, account_id, ordered_at, status, currency, shipping_address_id, campaign_id from {{ source('raw', 'orders') }}",
+      "compiled_code": "select order_id, account_id, ordered_at, status, currency, shipping_address_id, campaign_id from raw.public.orders",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "93ec59169bd7c25c3052761b85d905146d783e78990258592200f4a3f54cc586"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_orders"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_order_items": {
+      "unique_id": "model.shoply.stg_order_items",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_order_items",
+      "alias": "stg_order_items",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_order_items.sql",
+      "original_file_path": "models/staging/stg_order_items.sql",
+      "relation_name": "analytics.staging.stg_order_items",
+      "description": "Staged order_items: renamed and typed, no business logic. One row per line item.",
+      "columns": {
+        "order_item_id": {
+          "name": "order_item_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "quantity": {
+          "name": "quantity",
+          "description": "",
+          "data_type": "integer"
+        },
+        "unit_price": {
+          "name": "unit_price",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "discount": {
+          "name": "discount",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.order_items"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "order_items"
+        ]
+      ],
+      "raw_code": "select order_item_id, order_id, product_id, quantity, unit_price, discount from {{ source('raw', 'order_items') }}",
+      "compiled_code": "select order_item_id, order_id, product_id, quantity, unit_price, discount from raw.public.order_items",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "607146e8295776b89d53f3ffad5b24747a40ae76c9f015c9b8a78b7480bc6af1"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_order_items"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_payments": {
+      "unique_id": "model.shoply.stg_payments",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_payments",
+      "alias": "stg_payments",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_payments.sql",
+      "original_file_path": "models/staging/stg_payments.sql",
+      "relation_name": "analytics.staging.stg_payments",
+      "description": "Staged payments: renamed and typed, no business logic. Payment attempts against orders.",
+      "columns": {
+        "payment_id": {
+          "name": "payment_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "paid_at": {
+          "name": "paid_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "amount": {
+          "name": "amount",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "method": {
+          "name": "method",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "status": {
+          "name": "status",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.payments"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "payments"
+        ]
+      ],
+      "raw_code": "select payment_id, order_id, paid_at, amount, method, status from {{ source('raw', 'payments') }}",
+      "compiled_code": "select payment_id, order_id, paid_at, amount, method, status from raw.public.payments",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "789ad044dc98b55b56be835cf5aaaaaed5510ff0e8bfcd959d3775319a16b2e4"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_payments"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_refunds": {
+      "unique_id": "model.shoply.stg_refunds",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_refunds",
+      "alias": "stg_refunds",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_refunds.sql",
+      "original_file_path": "models/staging/stg_refunds.sql",
+      "relation_name": "analytics.staging.stg_refunds",
+      "description": "Staged refunds: renamed and typed, no business logic. Refunds issued against payments.",
+      "columns": {
+        "refund_id": {
+          "name": "refund_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "payment_id": {
+          "name": "payment_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "refunded_at": {
+          "name": "refunded_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "amount": {
+          "name": "amount",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "reason": {
+          "name": "reason",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.refunds"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "refunds"
+        ]
+      ],
+      "raw_code": "select refund_id, payment_id, refunded_at, amount, reason from {{ source('raw', 'refunds') }}",
+      "compiled_code": "select refund_id, payment_id, refunded_at, amount, reason from raw.public.refunds",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "9db828de25e0c005f584a9032b02b67ca29c4b2af6142d2d321193c53f7405d8"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_refunds"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_products": {
+      "unique_id": "model.shoply.stg_products",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_products",
+      "alias": "stg_products",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_products.sql",
+      "original_file_path": "models/staging/stg_products.sql",
+      "relation_name": "analytics.staging.stg_products",
+      "description": "Staged products: renamed and typed, no business logic. Product catalog.",
+      "columns": {
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "sku": {
+          "name": "sku",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "name": {
+          "name": "name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "category_id": {
+          "name": "category_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "list_price": {
+          "name": "list_price",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "active": {
+          "name": "active",
+          "description": "",
+          "data_type": "boolean"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.products"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "products"
+        ]
+      ],
+      "raw_code": "select product_id, sku, name, category_id, list_price, active from {{ source('raw', 'products') }}",
+      "compiled_code": "select product_id, sku, name, category_id, list_price, active from raw.public.products",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "1aa1b269c997e022f7ba805bf1f1727919173d46c6a744e8bc77424105fc8444"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_products"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_categories": {
+      "unique_id": "model.shoply.stg_categories",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_categories",
+      "alias": "stg_categories",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_categories.sql",
+      "original_file_path": "models/staging/stg_categories.sql",
+      "relation_name": "analytics.staging.stg_categories",
+      "description": "Staged categories: renamed and typed, no business logic. Product categories, two levels.",
+      "columns": {
+        "category_id": {
+          "name": "category_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "name": {
+          "name": "name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "parent_category_id": {
+          "name": "parent_category_id",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.categories"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "categories"
+        ]
+      ],
+      "raw_code": "select category_id, name, parent_category_id from {{ source('raw', 'categories') }}",
+      "compiled_code": "select category_id, name, parent_category_id from raw.public.categories",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "29925aec863191f9b1db2a39ef09174e4d5427c29c3aab4fa50605499644a8dc"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_categories"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_inventory_snapshots": {
+      "unique_id": "model.shoply.stg_inventory_snapshots",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_inventory_snapshots",
+      "alias": "stg_inventory_snapshots",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_inventory_snapshots.sql",
+      "original_file_path": "models/staging/stg_inventory_snapshots.sql",
+      "relation_name": "analytics.staging.stg_inventory_snapshots",
+      "description": "Staged inventory_snapshots: renamed and typed, no business logic. Daily on-hand inventory per product and warehouse.",
+      "columns": {
+        "snapshot_date": {
+          "name": "snapshot_date",
+          "description": "",
+          "data_type": "date"
+        },
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "warehouse": {
+          "name": "warehouse",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "on_hand": {
+          "name": "on_hand",
+          "description": "",
+          "data_type": "integer"
+        },
+        "reserved": {
+          "name": "reserved",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.inventory_snapshots"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "inventory_snapshots"
+        ]
+      ],
+      "raw_code": "select snapshot_date, product_id, warehouse, on_hand, reserved from {{ source('raw', 'inventory_snapshots') }}",
+      "compiled_code": "select snapshot_date, product_id, warehouse, on_hand, reserved from raw.public.inventory_snapshots",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "44ebe38796af750bd5686bc3049fae7a7781df949605079c1f599d150db01621"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_inventory_snapshots"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_web_sessions": {
+      "unique_id": "model.shoply.stg_web_sessions",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_web_sessions",
+      "alias": "stg_web_sessions",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_web_sessions.sql",
+      "original_file_path": "models/staging/stg_web_sessions.sql",
+      "relation_name": "analytics.staging.stg_web_sessions",
+      "description": "Staged web_sessions: renamed and typed, no business logic. Web sessions from the analytics SDK.",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "started_at": {
+          "name": "started_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "device": {
+          "name": "device",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "utm_campaign": {
+          "name": "utm_campaign",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "landing_page": {
+          "name": "landing_page",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.web_sessions"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "web_sessions"
+        ]
+      ],
+      "raw_code": "select session_id, account_id, started_at, device, utm_campaign, landing_page from {{ source('raw', 'web_sessions') }}",
+      "compiled_code": "select session_id, account_id, started_at, device, utm_campaign, landing_page from raw.public.web_sessions",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "0c6408c2165b3c40073bde111ce8ff717b2a39b6bbeec1e66c76659e8d4a121f"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_web_sessions"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_page_views": {
+      "unique_id": "model.shoply.stg_page_views",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_page_views",
+      "alias": "stg_page_views",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_page_views.sql",
+      "original_file_path": "models/staging/stg_page_views.sql",
+      "relation_name": "analytics.staging.stg_page_views",
+      "description": "Staged page_views: renamed and typed, no business logic. Page views within sessions.",
+      "columns": {
+        "page_view_id": {
+          "name": "page_view_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "session_id": {
+          "name": "session_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "viewed_at": {
+          "name": "viewed_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "path": {
+          "name": "path",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.page_views"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "page_views"
+        ]
+      ],
+      "raw_code": "select page_view_id, session_id, viewed_at, path, product_id from {{ source('raw', 'page_views') }}",
+      "compiled_code": "select page_view_id, session_id, viewed_at, path, product_id from raw.public.page_views",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "2e89a744fbf2be00bcafebacc2e90524573e0b58105b0ff9622bc5902130b281"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_page_views"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_marketing_campaigns": {
+      "unique_id": "model.shoply.stg_marketing_campaigns",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_marketing_campaigns",
+      "alias": "stg_marketing_campaigns",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_marketing_campaigns.sql",
+      "original_file_path": "models/staging/stg_marketing_campaigns.sql",
+      "relation_name": "analytics.staging.stg_marketing_campaigns",
+      "description": "Staged marketing_campaigns: renamed and typed, no business logic. Campaigns with spend and channel.",
+      "columns": {
+        "campaign_id": {
+          "name": "campaign_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "name": {
+          "name": "name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "channel": {
+          "name": "channel",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "started_at": {
+          "name": "started_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "spend_usd": {
+          "name": "spend_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.marketing_campaigns"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "marketing_campaigns"
+        ]
+      ],
+      "raw_code": "select campaign_id, name, channel, started_at, ended_at, spend_usd from {{ source('raw', 'marketing_campaigns') }}",
+      "compiled_code": "select campaign_id, name, channel, started_at, ended_at, spend_usd from raw.public.marketing_campaigns",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "cc5cc57016321808f3c3c1dfd28362333a526cc577a67c7e608aa075a2e286ea"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_marketing_campaigns"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.stg_email_events": {
+      "unique_id": "model.shoply.stg_email_events",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "stg_email_events",
+      "alias": "stg_email_events",
+      "database": "analytics",
+      "schema": "staging",
+      "path": "staging/stg_email_events.sql",
+      "original_file_path": "models/staging/stg_email_events.sql",
+      "relation_name": "analytics.staging.stg_email_events",
+      "description": "Staged email_events: renamed and typed, no business logic. Email sends, opens, clicks.",
+      "columns": {
+        "event_id": {
+          "name": "event_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "event_type": {
+          "name": "event_type",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        }
+      },
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "source.shoply.raw.email_events"
+        ],
+        "macros": []
+      },
+      "refs": [],
+      "sources": [
+        [
+          "raw",
+          "email_events"
+        ]
+      ],
+      "raw_code": "select event_id, customer_id, campaign_id, event_type, occurred_at from {{ source('raw', 'email_events') }}",
+      "compiled_code": "select event_id, customer_id, campaign_id, event_type, occurred_at from raw.public.email_events",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "d43cca4491e6aac938d9539a14dc7975c057591c8a5d6a87c2c630f2e2333b6e"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "staging",
+        "stg_email_events"
+      ],
+      "unrendered_config": {
+        "materialized": "view"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.int_customer_identity": {
+      "unique_id": "model.shoply.int_customer_identity",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "int_customer_identity",
+      "alias": "int_customer_identity",
+      "database": "analytics",
+      "schema": "intermediate",
+      "path": "intermediate/int_customer_identity.sql",
+      "original_file_path": "models/intermediate/int_customer_identity.sql",
+      "relation_name": "analytics.intermediate.int_customer_identity",
+      "description": "Point-in-time account to customer mapping with validity intervals.",
+      "columns": {
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "description": "",
+          "data_type": "timestamp_tz"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_account_customer_map"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_account_customer_map",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select account_id, customer_id, valid_from, valid_to from {{ ref('stg_account_customer_map') }}",
+      "compiled_code": "select account_id, customer_id, valid_from, valid_to from analytics.staging.stg_account_customer_map",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "91baa6266d109a05ad12fbfb164bfa84e5070cee89144b96f8387510c8d2ecb1"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "intermediate",
+        "int_customer_identity"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.int_orders_with_payments": {
+      "unique_id": "model.shoply.int_orders_with_payments",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "int_orders_with_payments",
+      "alias": "int_orders_with_payments",
+      "database": "analytics",
+      "schema": "intermediate",
+      "path": "intermediate/int_orders_with_payments.sql",
+      "original_file_path": "models/intermediate/int_orders_with_payments.sql",
+      "relation_name": "analytics.intermediate.int_orders_with_payments",
+      "description": "Orders joined to their settled payments and refunds. One row per order.",
+      "columns": {
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "ordered_at": {
+          "name": "ordered_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "status": {
+          "name": "status",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "paid_usd": {
+          "name": "paid_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "refunded_usd": {
+          "name": "refunded_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "net_usd": {
+          "name": "net_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_orders",
+          "model.shoply.stg_payments",
+          "model.shoply.stg_refunds"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_orders",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_payments",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_refunds",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select o.order_id, o.account_id, o.ordered_at, o.status,\n       coalesce(p.paid_usd, 0) as paid_usd, coalesce(r.refunded_usd, 0) as refunded_usd,\n       coalesce(p.paid_usd, 0) - coalesce(r.refunded_usd, 0) as net_usd\nfrom {{ ref('stg_orders') }} o\nleft join (select order_id, sum(amount) as paid_usd from {{ ref('stg_payments') }} where status = 'settled' group by 1) p on p.order_id = o.order_id\nleft join (select pay.order_id, sum(rf.amount) as refunded_usd from {{ ref('stg_refunds') }} rf join {{ ref('stg_payments') }} pay on pay.payment_id = rf.payment_id group by 1) r on r.order_id = o.order_id",
+      "compiled_code": "select o.order_id, o.account_id, o.ordered_at, o.status,\n       coalesce(p.paid_usd, 0) as paid_usd, coalesce(r.refunded_usd, 0) as refunded_usd,\n       coalesce(p.paid_usd, 0) - coalesce(r.refunded_usd, 0) as net_usd\nfrom analytics.staging.stg_orders o\nleft join (select order_id, sum(amount) as paid_usd from analytics.staging.stg_payments where status = 'settled' group by 1) p on p.order_id = o.order_id\nleft join (select pay.order_id, sum(rf.amount) as refunded_usd from analytics.staging.stg_refunds rf join analytics.staging.stg_payments pay on pay.payment_id = rf.payment_id group by 1) r on r.order_id = o.order_id",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "09f832453da41acc180216e95b5af4377f3a6a2739990506e5735b0ed15e7f4e"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "intermediate",
+        "int_orders_with_payments"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.int_order_items_enriched": {
+      "unique_id": "model.shoply.int_order_items_enriched",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "int_order_items_enriched",
+      "alias": "int_order_items_enriched",
+      "database": "analytics",
+      "schema": "intermediate",
+      "path": "intermediate/int_order_items_enriched.sql",
+      "original_file_path": "models/intermediate/int_order_items_enriched.sql",
+      "relation_name": "analytics.intermediate.int_order_items_enriched",
+      "description": "Line items with product and category attributes and extended price.",
+      "columns": {
+        "order_item_id": {
+          "name": "order_item_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "category_id": {
+          "name": "category_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "category_name": {
+          "name": "category_name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "quantity": {
+          "name": "quantity",
+          "description": "",
+          "data_type": "integer"
+        },
+        "extended_price": {
+          "name": "extended_price",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_order_items",
+          "model.shoply.stg_products",
+          "model.shoply.stg_categories"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_order_items",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_products",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_categories",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select i.order_item_id, i.order_id, i.product_id, p.category_id, c.name as category_name,\n       i.quantity, i.quantity * i.unit_price - i.discount as extended_price\nfrom {{ ref('stg_order_items') }} i\njoin {{ ref('stg_products') }} p on p.product_id = i.product_id\nleft join {{ ref('stg_categories') }} c on c.category_id = p.category_id",
+      "compiled_code": "select i.order_item_id, i.order_id, i.product_id, p.category_id, c.name as category_name,\n       i.quantity, i.quantity * i.unit_price - i.discount as extended_price\nfrom analytics.staging.stg_order_items i\njoin analytics.staging.stg_products p on p.product_id = i.product_id\nleft join analytics.staging.stg_categories c on c.category_id = p.category_id",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "8e3a4d8d531b5b535eadbc9f961dedb91cf41214cb0ddb7fe9d39fc89e2f0eba"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "intermediate",
+        "int_order_items_enriched"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.int_customer_daily_spend": {
+      "unique_id": "model.shoply.int_customer_daily_spend",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "int_customer_daily_spend",
+      "alias": "int_customer_daily_spend",
+      "database": "analytics",
+      "schema": "intermediate",
+      "path": "intermediate/int_customer_daily_spend.sql",
+      "original_file_path": "models/intermediate/int_customer_daily_spend.sql",
+      "relation_name": "analytics.intermediate.int_customer_daily_spend",
+      "description": "Net settled spend per customer per UTC day, attributed by the account owner at order time.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_day": {
+          "name": "order_day",
+          "description": "",
+          "data_type": "date"
+        },
+        "net_usd": {
+          "name": "net_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "order_count": {
+          "name": "order_count",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "config": {
+        "materialized": "incremental",
+        "tags": [
+          "internal"
+        ],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": "merge"
+      },
+      "tags": [
+        "internal"
+      ],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.int_orders_with_payments",
+          "model.shoply.int_customer_identity"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "int_orders_with_payments",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_identity",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select m.customer_id, cast(convert_timezone('UTC', o.ordered_at) as date) as order_day,\n       sum(o.net_usd) as net_usd, count(*) as order_count\nfrom {{ ref('int_orders_with_payments') }} o\njoin {{ ref('int_customer_identity') }} m\n  on m.account_id = o.account_id and o.ordered_at >= m.valid_from and (m.valid_to is null or o.ordered_at < m.valid_to)\ngroup by 1, 2",
+      "compiled_code": "select m.customer_id, cast(convert_timezone('UTC', o.ordered_at) as date) as order_day,\n       sum(o.net_usd) as net_usd, count(*) as order_count\nfrom analytics.intermediate.int_orders_with_payments o\njoin analytics.intermediate.int_customer_identity m\n  on m.account_id = o.account_id and o.ordered_at >= m.valid_from and (m.valid_to is null or o.ordered_at < m.valid_to)\ngroup by 1, 2",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "b6bcd82b5cd5a4a38aa9d17798290a1c77c7824da49bcf53a2f8e2d6176b10d7"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "intermediate",
+        "int_customer_daily_spend"
+      ],
+      "unrendered_config": {
+        "materialized": "incremental"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.int_sessions_attributed": {
+      "unique_id": "model.shoply.int_sessions_attributed",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "int_sessions_attributed",
+      "alias": "int_sessions_attributed",
+      "database": "analytics",
+      "schema": "intermediate",
+      "path": "intermediate/int_sessions_attributed.sql",
+      "original_file_path": "models/intermediate/int_sessions_attributed.sql",
+      "relation_name": "analytics.intermediate.int_sessions_attributed",
+      "description": "Sessions attributed to a customer through the account owner at session start.",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "started_at": {
+          "name": "started_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "utm_campaign": {
+          "name": "utm_campaign",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "device": {
+          "name": "device",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [
+          "internal"
+        ],
+        "meta": {
+          "owner": "marketing-analytics"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [
+        "internal"
+      ],
+      "meta": {
+        "owner": "marketing-analytics"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_web_sessions",
+          "model.shoply.int_customer_identity"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_web_sessions",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_identity",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select s.session_id, m.customer_id, s.started_at, s.utm_campaign, s.device\nfrom {{ ref('stg_web_sessions') }} s\nleft join {{ ref('int_customer_identity') }} m\n  on m.account_id = s.account_id and s.started_at >= m.valid_from and (m.valid_to is null or s.started_at < m.valid_to)",
+      "compiled_code": "select s.session_id, m.customer_id, s.started_at, s.utm_campaign, s.device\nfrom analytics.staging.stg_web_sessions s\nleft join analytics.intermediate.int_customer_identity m\n  on m.account_id = s.account_id and s.started_at >= m.valid_from and (m.valid_to is null or s.started_at < m.valid_to)",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "a59a918a21551500a68ca2c2e965b197ef1c996b3e499ec2940457b28181cac2"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "intermediate",
+        "int_sessions_attributed"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "marketing-analytics"
+    },
+    "model.shoply.dim_customers": {
+      "unique_id": "model.shoply.dim_customers",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "dim_customers",
+      "alias": "dim_customers",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/dim_customers.sql",
+      "original_file_path": "models/marts/dim_customers.sql",
+      "relation_name": "analytics.marts.dim_customers",
+      "description": "One row per customer with current residence postal code and first order date.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "email": {
+          "name": "email",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "region": {
+          "name": "region",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "residence_postal_code": {
+          "name": "residence_postal_code",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "first_order_day": {
+          "name": "first_order_day",
+          "description": "",
+          "data_type": "date"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_customers",
+          "model.shoply.stg_addresses",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_addresses",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.customer_id, c.email, c.region, a.postal_code as residence_postal_code, min(d.order_day) as first_order_day\nfrom {{ ref('stg_customers') }} c\nleft join {{ ref('stg_addresses') }} a on a.customer_id = c.customer_id and a.address_type = 'residence' and a.valid_to is null\nleft join {{ ref('int_customer_daily_spend') }} d on d.customer_id = c.customer_id\ngroup by 1, 2, 3, 4",
+      "compiled_code": "select c.customer_id, c.email, c.region, a.postal_code as residence_postal_code, min(d.order_day) as first_order_day\nfrom analytics.staging.stg_customers c\nleft join analytics.staging.stg_addresses a on a.customer_id = c.customer_id and a.address_type = 'residence' and a.valid_to is null\nleft join analytics.intermediate.int_customer_daily_spend d on d.customer_id = c.customer_id\ngroup by 1, 2, 3, 4",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "80fb97a9beca514e61571b963eb73ecf918a6b774d49a0d59c0440129b683b11"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "dim_customers"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.dim_products": {
+      "unique_id": "model.shoply.dim_products",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "dim_products",
+      "alias": "dim_products",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/dim_products.sql",
+      "original_file_path": "models/marts/dim_products.sql",
+      "relation_name": "analytics.marts.dim_products",
+      "description": "Product dimension with category hierarchy.",
+      "columns": {
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "sku": {
+          "name": "sku",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "name": {
+          "name": "name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "category_name": {
+          "name": "category_name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "parent_category_name": {
+          "name": "parent_category_name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "list_price": {
+          "name": "list_price",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "active": {
+          "name": "active",
+          "description": "",
+          "data_type": "boolean"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "merchandising"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "merchandising"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_products",
+          "model.shoply.stg_categories"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_products",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_categories",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select p.product_id, p.sku, p.name, c.name as category_name, pc.name as parent_category_name, p.list_price, p.active\nfrom {{ ref('stg_products') }} p\nleft join {{ ref('stg_categories') }} c on c.category_id = p.category_id\nleft join {{ ref('stg_categories') }} pc on pc.category_id = c.parent_category_id",
+      "compiled_code": "select p.product_id, p.sku, p.name, c.name as category_name, pc.name as parent_category_name, p.list_price, p.active\nfrom analytics.staging.stg_products p\nleft join analytics.staging.stg_categories c on c.category_id = p.category_id\nleft join analytics.staging.stg_categories pc on pc.category_id = c.parent_category_id",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "155b41258456c29330544fa68375ca0d3db3a43f0a49560cb25192dd43240659"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "dim_products"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "merchandising"
+    },
+    "model.shoply.fct_orders": {
+      "unique_id": "model.shoply.fct_orders",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "fct_orders",
+      "alias": "fct_orders",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/fct_orders.sql",
+      "original_file_path": "models/marts/fct_orders.sql",
+      "relation_name": "analytics.marts.fct_orders",
+      "description": "One row per order with customer attribution and net settled amount.",
+      "columns": {
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "ordered_at": {
+          "name": "ordered_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "status": {
+          "name": "status",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "net_usd": {
+          "name": "net_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "incremental",
+        "tags": [],
+        "meta": {
+          "owner": "data-platform"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": "merge"
+      },
+      "tags": [],
+      "meta": {
+        "owner": "data-platform"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.int_orders_with_payments",
+          "model.shoply.int_customer_identity"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "int_orders_with_payments",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_identity",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select o.order_id, m.customer_id, o.ordered_at, o.status, o.net_usd\nfrom {{ ref('int_orders_with_payments') }} o\njoin {{ ref('int_customer_identity') }} m\n  on m.account_id = o.account_id and o.ordered_at >= m.valid_from and (m.valid_to is null or o.ordered_at < m.valid_to)",
+      "compiled_code": "select o.order_id, m.customer_id, o.ordered_at, o.status, o.net_usd\nfrom analytics.intermediate.int_orders_with_payments o\njoin analytics.intermediate.int_customer_identity m\n  on m.account_id = o.account_id and o.ordered_at >= m.valid_from and (m.valid_to is null or o.ordered_at < m.valid_to)",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "41a4449d5de06143bd595fbe95621cb482bfcd66895a07f59862c73484280906"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "fct_orders"
+      ],
+      "unrendered_config": {
+        "materialized": "incremental"
+      },
+      "access": "protected",
+      "group": "data-platform"
+    },
+    "model.shoply.fct_order_items": {
+      "unique_id": "model.shoply.fct_order_items",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "fct_order_items",
+      "alias": "fct_order_items",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/fct_order_items.sql",
+      "original_file_path": "models/marts/fct_order_items.sql",
+      "relation_name": "analytics.marts.fct_order_items",
+      "description": "One row per line item with customer and category.",
+      "columns": {
+        "order_item_id": {
+          "name": "order_item_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "category_name": {
+          "name": "category_name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "quantity": {
+          "name": "quantity",
+          "description": "",
+          "data_type": "integer"
+        },
+        "extended_price": {
+          "name": "extended_price",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "ordered_at": {
+          "name": "ordered_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        }
+      },
+      "config": {
+        "materialized": "incremental",
+        "tags": [],
+        "meta": {
+          "owner": "merchandising"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": "merge"
+      },
+      "tags": [],
+      "meta": {
+        "owner": "merchandising"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.int_order_items_enriched",
+          "model.shoply.fct_orders"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "int_order_items_enriched",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "fct_orders",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select i.order_item_id, i.order_id, o.customer_id, i.product_id, i.category_name, i.quantity, i.extended_price, o.ordered_at\nfrom {{ ref('int_order_items_enriched') }} i join {{ ref('fct_orders') }} o on o.order_id = i.order_id",
+      "compiled_code": "select i.order_item_id, i.order_id, o.customer_id, i.product_id, i.category_name, i.quantity, i.extended_price, o.ordered_at\nfrom analytics.intermediate.int_order_items_enriched i join analytics.marts.fct_orders o on o.order_id = i.order_id",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "2cc7df370d9e0ae9157a912d6cf1652847c2db1b04e06bf20bd4f83ee1b92326"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "fct_order_items"
+      ],
+      "unrendered_config": {
+        "materialized": "incremental"
+      },
+      "access": "protected",
+      "group": "merchandising"
+    },
+    "model.shoply.fct_payments": {
+      "unique_id": "model.shoply.fct_payments",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "fct_payments",
+      "alias": "fct_payments",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/fct_payments.sql",
+      "original_file_path": "models/marts/fct_payments.sql",
+      "relation_name": "analytics.marts.fct_payments",
+      "description": "Settled payments with order and customer.",
+      "columns": {
+        "payment_id": {
+          "name": "payment_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "paid_at": {
+          "name": "paid_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "amount": {
+          "name": "amount",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "method": {
+          "name": "method",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "finance"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "finance"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_payments",
+          "model.shoply.fct_orders"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_payments",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "fct_orders",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select p.payment_id, p.order_id, o.customer_id, p.paid_at, p.amount, p.method\nfrom {{ ref('stg_payments') }} p join {{ ref('fct_orders') }} o on o.order_id = p.order_id where p.status = 'settled'",
+      "compiled_code": "select p.payment_id, p.order_id, o.customer_id, p.paid_at, p.amount, p.method\nfrom analytics.staging.stg_payments p join analytics.marts.fct_orders o on o.order_id = p.order_id where p.status = 'settled'",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "f2a759b058115487de8cfb70385b75fa4add7720ba25f1c34524fa5bc5bcd49b"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "fct_payments"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "finance"
+    },
+    "model.shoply.fct_refunds": {
+      "unique_id": "model.shoply.fct_refunds",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "fct_refunds",
+      "alias": "fct_refunds",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/fct_refunds.sql",
+      "original_file_path": "models/marts/fct_refunds.sql",
+      "relation_name": "analytics.marts.fct_refunds",
+      "description": "Refunds with the customer who received them.",
+      "columns": {
+        "refund_id": {
+          "name": "refund_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "payment_id": {
+          "name": "payment_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "refunded_at": {
+          "name": "refunded_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "amount": {
+          "name": "amount",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "reason": {
+          "name": "reason",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "finance"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "finance"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_refunds",
+          "model.shoply.fct_payments"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_refunds",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "fct_payments",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select r.refund_id, r.payment_id, p.customer_id, r.refunded_at, r.amount, r.reason\nfrom {{ ref('stg_refunds') }} r join {{ ref('fct_payments') }} p on p.payment_id = r.payment_id",
+      "compiled_code": "select r.refund_id, r.payment_id, p.customer_id, r.refunded_at, r.amount, r.reason\nfrom analytics.staging.stg_refunds r join analytics.marts.fct_payments p on p.payment_id = r.payment_id",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "a208919f9af7cc15f21289790eb08dfa5ca8ddd78000912edef12337cd2427e6"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "fct_refunds"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "finance"
+    },
+    "model.shoply.fct_sessions": {
+      "unique_id": "model.shoply.fct_sessions",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "fct_sessions",
+      "alias": "fct_sessions",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/fct_sessions.sql",
+      "original_file_path": "models/marts/fct_sessions.sql",
+      "relation_name": "analytics.marts.fct_sessions",
+      "description": "Sessions with page view counts and whether an order followed within the session.",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "started_at": {
+          "name": "started_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "utm_campaign": {
+          "name": "utm_campaign",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "device": {
+          "name": "device",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "page_views": {
+          "name": "page_views",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "config": {
+        "materialized": "incremental",
+        "tags": [],
+        "meta": {
+          "owner": "marketing-analytics"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": "merge"
+      },
+      "tags": [],
+      "meta": {
+        "owner": "marketing-analytics"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.int_sessions_attributed",
+          "model.shoply.stg_page_views"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "int_sessions_attributed",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_page_views",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select s.session_id, s.customer_id, s.started_at, s.utm_campaign, s.device, count(v.page_view_id) as page_views\nfrom {{ ref('int_sessions_attributed') }} s left join {{ ref('stg_page_views') }} v on v.session_id = s.session_id\ngroup by 1, 2, 3, 4, 5",
+      "compiled_code": "select s.session_id, s.customer_id, s.started_at, s.utm_campaign, s.device, count(v.page_view_id) as page_views\nfrom analytics.intermediate.int_sessions_attributed s left join analytics.staging.stg_page_views v on v.session_id = s.session_id\ngroup by 1, 2, 3, 4, 5",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "f92db84a1a3398edd38ff58fc0d7099732561cd4473f94770db4f1707518de68"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "fct_sessions"
+      ],
+      "unrendered_config": {
+        "materialized": "incremental"
+      },
+      "access": "protected",
+      "group": "marketing-analytics"
+    },
+    "model.shoply.customer_spend_30d": {
+      "unique_id": "model.shoply.customer_spend_30d",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "customer_spend_30d",
+      "alias": "customer_spend_30d",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/customer_spend_30d.sql",
+      "original_file_path": "models/marts/customer_spend_30d.sql",
+      "relation_name": "analytics.marts.customer_spend_30d",
+      "description": "Net settled spend per customer over the previous 30 complete UTC days, including customers with no orders. Feeds the sales application.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "spend_usd": {
+          "name": "spend_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "sales-engineering",
+          "sla_minutes": 5
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "sales-engineering",
+        "sla_minutes": 5
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_customers",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as spend_usd\nfrom {{ ref('stg_customers') }} c\nleft join {{ ref('int_customer_daily_spend') }} d\n  on d.customer_id = c.customer_id\n and d.order_day >= dateadd(day, -30, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as spend_usd\nfrom analytics.staging.stg_customers c\nleft join analytics.intermediate.int_customer_daily_spend d\n  on d.customer_id = c.customer_id\n and d.order_day >= dateadd(day, -30, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "deab7d7e13b60b23b4fca827ff628c2e9cbf5b4e6261837dc4c5327507f439b1"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "customer_spend_30d"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "sales-engineering"
+    },
+    "model.shoply.cust_spend_last_30d": {
+      "unique_id": "model.shoply.cust_spend_last_30d",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "cust_spend_last_30d",
+      "alias": "cust_spend_last_30d",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/cust_spend_last_30d.sql",
+      "original_file_path": "models/marts/cust_spend_last_30d.sql",
+      "relation_name": "analytics.marts.cust_spend_last_30d",
+      "description": "Customer spend, last 30 days, for the marketing dashboard.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "spend_last_30d": {
+          "name": "spend_last_30d",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "marketing-analytics"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "marketing-analytics"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_customers",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as spend_last_30d\nfrom {{ ref('stg_customers') }} c\nleft join {{ ref('int_customer_daily_spend') }} d\n  on d.customer_id = c.customer_id\n and d.order_day >= dateadd(day, -30, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as spend_last_30d\nfrom analytics.staging.stg_customers c\nleft join analytics.intermediate.int_customer_daily_spend d\n  on d.customer_id = c.customer_id\n and d.order_day >= dateadd(day, -30, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "d07dab77edbfe08178a425c89bceb31358d5cfd8707463a492ec4cf20290f95f"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "cust_spend_last_30d"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "marketing-analytics"
+    },
+    "model.shoply.customer_spend_30d_v2": {
+      "unique_id": "model.shoply.customer_spend_30d_v2",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "customer_spend_30d_v2",
+      "alias": "customer_spend_30d_v2",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/customer_spend_30d_v2.sql",
+      "original_file_path": "models/marts/customer_spend_30d_v2.sql",
+      "relation_name": "analytics.marts.customer_spend_30d_v2",
+      "description": "Copy of customer_spend_30d for the support agent, built when the sales table was slow.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "spend_usd": {
+          "name": "spend_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "support-tools"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "support-tools"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_customers",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as spend_usd\nfrom {{ ref('stg_customers') }} c\nleft join {{ ref('int_customer_daily_spend') }} d\n  on d.customer_id = c.customer_id\n and d.order_day >= dateadd(day, -30, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as spend_usd\nfrom analytics.staging.stg_customers c\nleft join analytics.intermediate.int_customer_daily_spend d\n  on d.customer_id = c.customer_id\n and d.order_day >= dateadd(day, -30, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "deab7d7e13b60b23b4fca827ff628c2e9cbf5b4e6261837dc4c5327507f439b1"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "customer_spend_30d_v2"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "support-tools"
+    },
+    "model.shoply.customer_spend_90d": {
+      "unique_id": "model.shoply.customer_spend_90d",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "customer_spend_90d",
+      "alias": "customer_spend_90d",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/customer_spend_90d.sql",
+      "original_file_path": "models/marts/customer_spend_90d.sql",
+      "relation_name": "analytics.marts.customer_spend_90d",
+      "description": "Net settled spend per customer over the previous 90 complete UTC days, including customers with no orders.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "spend_usd": {
+          "name": "spend_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "support-tools"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "support-tools"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_customers",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as spend_usd\nfrom {{ ref('stg_customers') }} c\nleft join {{ ref('int_customer_daily_spend') }} d\n  on d.customer_id = c.customer_id\n and d.order_day >= dateadd(day, -90, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as spend_usd\nfrom analytics.staging.stg_customers c\nleft join analytics.intermediate.int_customer_daily_spend d\n  on d.customer_id = c.customer_id\n and d.order_day >= dateadd(day, -90, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "9a69d28262e15fc759f07bcec992d2890ae18944d5c373b5aa7b8e31fd50b38d"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "customer_spend_90d"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "support-tools"
+    },
+    "model.shoply.customer_order_count_30d": {
+      "unique_id": "model.shoply.customer_order_count_30d",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "customer_order_count_30d",
+      "alias": "customer_order_count_30d",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/customer_order_count_30d.sql",
+      "original_file_path": "models/marts/customer_order_count_30d.sql",
+      "relation_name": "analytics.marts.customer_order_count_30d",
+      "description": "Number of orders per customer over the previous 30 complete UTC days.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_count": {
+          "name": "order_count",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "sales-engineering"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "sales-engineering"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_customers",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.customer_id, coalesce(sum(d.order_count), 0) as order_count\nfrom {{ ref('stg_customers') }} c\nleft join {{ ref('int_customer_daily_spend') }} d\n  on d.customer_id = c.customer_id and d.order_day >= dateadd(day, -30, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled_code": "select c.customer_id, coalesce(sum(d.order_count), 0) as order_count\nfrom analytics.staging.stg_customers c\nleft join analytics.intermediate.int_customer_daily_spend d\n  on d.customer_id = c.customer_id and d.order_day >= dateadd(day, -30, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "570d1526196dadea370cedc36b93c916b8a311bf0b8f2a3fff3b0963f0fbfb70"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "customer_order_count_30d"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "sales-engineering"
+    },
+    "model.shoply.customer_ltv": {
+      "unique_id": "model.shoply.customer_ltv",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "customer_ltv",
+      "alias": "customer_ltv",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/customer_ltv.sql",
+      "original_file_path": "models/marts/customer_ltv.sql",
+      "relation_name": "analytics.marts.customer_ltv",
+      "description": "Lifetime net settled spend and order count per customer.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "lifetime_net_usd": {
+          "name": "lifetime_net_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "lifetime_orders": {
+          "name": "lifetime_orders",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "finance"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "finance"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_customers",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as lifetime_net_usd, coalesce(sum(d.order_count), 0) as lifetime_orders\nfrom {{ ref('stg_customers') }} c left join {{ ref('int_customer_daily_spend') }} d on d.customer_id = c.customer_id group by 1",
+      "compiled_code": "select c.customer_id, coalesce(sum(d.net_usd), 0) as lifetime_net_usd, coalesce(sum(d.order_count), 0) as lifetime_orders\nfrom analytics.staging.stg_customers c left join analytics.intermediate.int_customer_daily_spend d on d.customer_id = c.customer_id group by 1",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "2dd63ed0a8f82c9fa4ade275ca75a4cb0f2c877e8278deb16851bcf141e0594d"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "customer_ltv"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "finance"
+    },
+    "model.shoply.household_spend_90d": {
+      "unique_id": "model.shoply.household_spend_90d",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "household_spend_90d",
+      "alias": "household_spend_90d",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/household_spend_90d.sql",
+      "original_file_path": "models/marts/household_spend_90d.sql",
+      "relation_name": "analytics.marts.household_spend_90d",
+      "description": "Net spend per household over 90 days, where a household is customers sharing a residence postal code.",
+      "columns": {
+        "residence_postal_code": {
+          "name": "residence_postal_code",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "spend_usd": {
+          "name": "spend_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "members": {
+          "name": "members",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "support-tools"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "support-tools"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.dim_customers",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "dim_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.residence_postal_code, coalesce(sum(d.net_usd), 0) as spend_usd, count(distinct c.customer_id) as members\nfrom {{ ref('dim_customers') }} c\nleft join {{ ref('int_customer_daily_spend') }} d on d.customer_id = c.customer_id and d.order_day >= dateadd(day, -90, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled_code": "select c.residence_postal_code, coalesce(sum(d.net_usd), 0) as spend_usd, count(distinct c.customer_id) as members\nfrom analytics.marts.dim_customers c\nleft join analytics.intermediate.int_customer_daily_spend d on d.customer_id = c.customer_id and d.order_day >= dateadd(day, -90, current_date()) and d.order_day < current_date()\ngroup by 1",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "af3b6b5a18901f55f4b4655487fc0b86d107cb74ca69f69c1a7b8234662bf88c"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "household_spend_90d"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "support-tools"
+    },
+    "model.shoply.product_sales_daily": {
+      "unique_id": "model.shoply.product_sales_daily",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "product_sales_daily",
+      "alias": "product_sales_daily",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/product_sales_daily.sql",
+      "original_file_path": "models/marts/product_sales_daily.sql",
+      "relation_name": "analytics.marts.product_sales_daily",
+      "description": "Units and revenue per product per day.",
+      "columns": {
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_day": {
+          "name": "order_day",
+          "description": "",
+          "data_type": "date"
+        },
+        "units": {
+          "name": "units",
+          "description": "",
+          "data_type": "integer"
+        },
+        "revenue_usd": {
+          "name": "revenue_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "incremental",
+        "tags": [],
+        "meta": {
+          "owner": "merchandising"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": "merge"
+      },
+      "tags": [],
+      "meta": {
+        "owner": "merchandising"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.fct_order_items"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "fct_order_items",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select product_id, cast(convert_timezone('UTC', ordered_at) as date) as order_day, sum(quantity) as units, sum(extended_price) as revenue_usd from {{ ref('fct_order_items') }} group by 1, 2",
+      "compiled_code": "select product_id, cast(convert_timezone('UTC', ordered_at) as date) as order_day, sum(quantity) as units, sum(extended_price) as revenue_usd from analytics.marts.fct_order_items group by 1, 2",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "b5334d0280cc22281be85acc4de800382b7de01d49b1553321d7e07300ba90ad"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "product_sales_daily"
+      ],
+      "unrendered_config": {
+        "materialized": "incremental"
+      },
+      "access": "protected",
+      "group": "merchandising"
+    },
+    "model.shoply.category_sales_monthly": {
+      "unique_id": "model.shoply.category_sales_monthly",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "category_sales_monthly",
+      "alias": "category_sales_monthly",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/category_sales_monthly.sql",
+      "original_file_path": "models/marts/category_sales_monthly.sql",
+      "relation_name": "analytics.marts.category_sales_monthly",
+      "description": "Revenue per category per calendar month.",
+      "columns": {
+        "category_name": {
+          "name": "category_name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_month": {
+          "name": "order_month",
+          "description": "",
+          "data_type": "date"
+        },
+        "revenue_usd": {
+          "name": "revenue_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "merchandising"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "merchandising"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.fct_order_items"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "fct_order_items",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select category_name, date_trunc('month', convert_timezone('UTC', ordered_at))::date as order_month, sum(extended_price) as revenue_usd from {{ ref('fct_order_items') }} group by 1, 2",
+      "compiled_code": "select category_name, date_trunc('month', convert_timezone('UTC', ordered_at))::date as order_month, sum(extended_price) as revenue_usd from analytics.marts.fct_order_items group by 1, 2",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "f2e6bbe05b79e38977cbdb48be444f9661314cfd663f33e344dd4d3077d356b4"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "category_sales_monthly"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "merchandising"
+    },
+    "model.shoply.daily_revenue": {
+      "unique_id": "model.shoply.daily_revenue",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "daily_revenue",
+      "alias": "daily_revenue",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/daily_revenue.sql",
+      "original_file_path": "models/marts/daily_revenue.sql",
+      "relation_name": "analytics.marts.daily_revenue",
+      "description": "Gross settled payments, refunds, and net revenue per UTC day.",
+      "columns": {
+        "day": {
+          "name": "day",
+          "description": "",
+          "data_type": "date"
+        },
+        "gross_usd": {
+          "name": "gross_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "refunds_usd": {
+          "name": "refunds_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "net_usd": {
+          "name": "net_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "finance"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "finance"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.fct_payments",
+          "model.shoply.fct_refunds"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "fct_payments",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "fct_refunds",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "with p as (select cast(convert_timezone('UTC', paid_at) as date) as day, sum(amount) as gross_usd from {{ ref('fct_payments') }} group by 1),\n     r as (select cast(convert_timezone('UTC', refunded_at) as date) as day, sum(amount) as refunds_usd from {{ ref('fct_refunds') }} group by 1)\nselect p.day, p.gross_usd, coalesce(r.refunds_usd, 0) as refunds_usd, p.gross_usd - coalesce(r.refunds_usd, 0) as net_usd\nfrom p left join r on r.day = p.day",
+      "compiled_code": "with p as (select cast(convert_timezone('UTC', paid_at) as date) as day, sum(amount) as gross_usd from analytics.marts.fct_payments group by 1),\n     r as (select cast(convert_timezone('UTC', refunded_at) as date) as day, sum(amount) as refunds_usd from analytics.marts.fct_refunds group by 1)\nselect p.day, p.gross_usd, coalesce(r.refunds_usd, 0) as refunds_usd, p.gross_usd - coalesce(r.refunds_usd, 0) as net_usd\nfrom p left join r on r.day = p.day",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "3b866cdc82ad277b7d46b17c83499638a7c9b36651fa663aa9d4f8114f098dbc"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "daily_revenue"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "finance"
+    },
+    "model.shoply.campaign_attribution": {
+      "unique_id": "model.shoply.campaign_attribution",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "campaign_attribution",
+      "alias": "campaign_attribution",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/campaign_attribution.sql",
+      "original_file_path": "models/marts/campaign_attribution.sql",
+      "relation_name": "analytics.marts.campaign_attribution",
+      "description": "Orders and revenue attributed to campaigns by last session before the order.",
+      "columns": {
+        "campaign_id": {
+          "name": "campaign_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "campaign_name": {
+          "name": "campaign_name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "channel": {
+          "name": "channel",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "orders": {
+          "name": "orders",
+          "description": "",
+          "data_type": "integer"
+        },
+        "revenue_usd": {
+          "name": "revenue_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "spend_usd": {
+          "name": "spend_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "marketing-analytics"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "marketing-analytics"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.fct_sessions",
+          "model.shoply.fct_orders",
+          "model.shoply.stg_marketing_campaigns"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "fct_sessions",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "fct_orders",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_marketing_campaigns",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select c.campaign_id, c.name as campaign_name, c.channel, count(distinct o.order_id) as orders, sum(o.net_usd) as revenue_usd, any_value(c.spend_usd) as spend_usd\nfrom {{ ref('stg_marketing_campaigns') }} c\njoin {{ ref('fct_sessions') }} s on s.utm_campaign = c.name\njoin {{ ref('fct_orders') }} o on o.customer_id = s.customer_id and o.ordered_at between s.started_at and dateadd(hour, 24, s.started_at)\ngroup by 1, 2, 3",
+      "compiled_code": "select c.campaign_id, c.name as campaign_name, c.channel, count(distinct o.order_id) as orders, sum(o.net_usd) as revenue_usd, any_value(c.spend_usd) as spend_usd\nfrom analytics.staging.stg_marketing_campaigns c\njoin analytics.marts.fct_sessions s on s.utm_campaign = c.name\njoin analytics.marts.fct_orders o on o.customer_id = s.customer_id and o.ordered_at between s.started_at and dateadd(hour, 24, s.started_at)\ngroup by 1, 2, 3",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "06fddcb3f2b56d554f553ec0f8abfdf4951a6183ddc14acf72bdb80782eefd7e"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "campaign_attribution"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "marketing-analytics"
+    },
+    "model.shoply.inventory_health": {
+      "unique_id": "model.shoply.inventory_health",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "inventory_health",
+      "alias": "inventory_health",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/inventory_health.sql",
+      "original_file_path": "models/marts/inventory_health.sql",
+      "relation_name": "analytics.marts.inventory_health",
+      "description": "Days of cover per product from latest inventory and trailing 30-day units.",
+      "columns": {
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "on_hand": {
+          "name": "on_hand",
+          "description": "",
+          "data_type": "integer"
+        },
+        "units_30d": {
+          "name": "units_30d",
+          "description": "",
+          "data_type": "integer"
+        },
+        "days_of_cover": {
+          "name": "days_of_cover",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "merchandising"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "merchandising"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_inventory_snapshots",
+          "model.shoply.product_sales_daily"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_inventory_snapshots",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "product_sales_daily",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "with inv as (select product_id, sum(on_hand - reserved) as on_hand from {{ ref('stg_inventory_snapshots') }} where snapshot_date = (select max(snapshot_date) from {{ ref('stg_inventory_snapshots') }}) group by 1),\n     u as (select product_id, sum(units) as units_30d from {{ ref('product_sales_daily') }} where order_day >= dateadd(day, -30, current_date()) group by 1)\nselect inv.product_id, inv.on_hand, coalesce(u.units_30d, 0) as units_30d, inv.on_hand / nullif(u.units_30d / 30.0, 0) as days_of_cover\nfrom inv left join u on u.product_id = inv.product_id",
+      "compiled_code": "with inv as (select product_id, sum(on_hand - reserved) as on_hand from analytics.staging.stg_inventory_snapshots where snapshot_date = (select max(snapshot_date) from analytics.staging.stg_inventory_snapshots) group by 1),\n     u as (select product_id, sum(units) as units_30d from analytics.marts.product_sales_daily where order_day >= dateadd(day, -30, current_date()) group by 1)\nselect inv.product_id, inv.on_hand, coalesce(u.units_30d, 0) as units_30d, inv.on_hand / nullif(u.units_30d / 30.0, 0) as days_of_cover\nfrom inv left join u on u.product_id = inv.product_id",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "45009a7b82e1666a538d46a3a776fce7538f2ac62202e4d46266676a7c3f3bdb"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "inventory_health"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "merchandising"
+    },
+    "model.shoply.cohort_retention": {
+      "unique_id": "model.shoply.cohort_retention",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "cohort_retention",
+      "alias": "cohort_retention",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/cohort_retention.sql",
+      "original_file_path": "models/marts/cohort_retention.sql",
+      "relation_name": "analytics.marts.cohort_retention",
+      "description": "Share of each first-order-month cohort that ordered again in each later month.",
+      "columns": {
+        "cohort_month": {
+          "name": "cohort_month",
+          "description": "",
+          "data_type": "date"
+        },
+        "months_since": {
+          "name": "months_since",
+          "description": "",
+          "data_type": "integer"
+        },
+        "customers": {
+          "name": "customers",
+          "description": "",
+          "data_type": "integer"
+        },
+        "retained": {
+          "name": "retained",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "finance"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "finance"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.dim_customers",
+          "model.shoply.int_customer_daily_spend"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "dim_customers",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "int_customer_daily_spend",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select date_trunc('month', c.first_order_day)::date as cohort_month,\n       datediff('month', c.first_order_day, d.order_day) as months_since,\n       count(distinct c.customer_id) as customers, count(distinct d.customer_id) as retained\nfrom {{ ref('dim_customers') }} c left join {{ ref('int_customer_daily_spend') }} d on d.customer_id = c.customer_id\ngroup by 1, 2",
+      "compiled_code": "select date_trunc('month', c.first_order_day)::date as cohort_month,\n       datediff('month', c.first_order_day, d.order_day) as months_since,\n       count(distinct c.customer_id) as customers, count(distinct d.customer_id) as retained\nfrom analytics.marts.dim_customers c left join analytics.intermediate.int_customer_daily_spend d on d.customer_id = c.customer_id\ngroup by 1, 2",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "29128c6e10a2165cce62ec1620cb5e3459646f1b5b22543c7c6e826e6a416be6"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "cohort_retention"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "finance"
+    },
+    "model.shoply.email_engagement_weekly": {
+      "unique_id": "model.shoply.email_engagement_weekly",
+      "resource_type": "model",
+      "package_name": "shoply",
+      "name": "email_engagement_weekly",
+      "alias": "email_engagement_weekly",
+      "database": "analytics",
+      "schema": "marts",
+      "path": "marts/email_engagement_weekly.sql",
+      "original_file_path": "models/marts/email_engagement_weekly.sql",
+      "relation_name": "analytics.marts.email_engagement_weekly",
+      "description": "Sends, opens, and clicks per campaign per week.",
+      "columns": {
+        "campaign_id": {
+          "name": "campaign_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "week": {
+          "name": "week",
+          "description": "",
+          "data_type": "date"
+        },
+        "sends": {
+          "name": "sends",
+          "description": "",
+          "data_type": "integer"
+        },
+        "opens": {
+          "name": "opens",
+          "description": "",
+          "data_type": "integer"
+        },
+        "clicks": {
+          "name": "clicks",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {
+          "owner": "marketing-analytics"
+        },
+        "on_schema_change": "ignore",
+        "incremental_strategy": null
+      },
+      "tags": [],
+      "meta": {
+        "owner": "marketing-analytics"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.shoply.stg_email_events",
+          "model.shoply.stg_marketing_campaigns"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "stg_email_events",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_marketing_campaigns",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "raw_code": "select e.campaign_id, date_trunc('week', convert_timezone('UTC', e.occurred_at))::date as week,\n       count_if(e.event_type = 'send') as sends, count_if(e.event_type = 'open') as opens, count_if(e.event_type = 'click') as clicks\nfrom {{ ref('stg_email_events') }} e group by 1, 2",
+      "compiled_code": "select e.campaign_id, date_trunc('week', convert_timezone('UTC', e.occurred_at))::date as week,\n       count_if(e.event_type = 'send') as sends, count_if(e.event_type = 'open') as opens, count_if(e.event_type = 'click') as clicks\nfrom analytics.staging.stg_email_events e group by 1, 2",
+      "compiled": true,
+      "language": "sql",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "d0fbc02c22d823293b799f180f01e79fae36c0773fdb6d857136844b78d086a2"
+      },
+      "created_at": 1790834400.0,
+      "fqn": [
+        "shoply",
+        "marts",
+        "email_engagement_weekly"
+      ],
+      "unrendered_config": {
+        "materialized": "table"
+      },
+      "access": "protected",
+      "group": "marketing-analytics"
+    }
+  },
+  "sources": {
+    "source.shoply.raw.customers": {
+      "unique_id": "source.shoply.raw.customers",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "customers",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "customers",
+      "loader": "fivetran",
+      "description": "One row per registered customer.",
+      "columns": {
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "email": {
+          "name": "email",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "created_at": {
+          "name": "created_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "region": {
+          "name": "region",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.customers",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.addresses": {
+      "unique_id": "source.shoply.raw.addresses",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "addresses",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "addresses",
+      "loader": "fivetran",
+      "description": "Customer addresses with a type: shipping, billing, residence.",
+      "columns": {
+        "address_id": {
+          "name": "address_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "address_type": {
+          "name": "address_type",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "postal_code": {
+          "name": "postal_code",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "description": "",
+          "data_type": "timestamp_tz"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.addresses",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.accounts": {
+      "unique_id": "source.shoply.raw.accounts",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "accounts",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "accounts",
+      "loader": "fivetran",
+      "description": "Login accounts. An account may change hands between customers.",
+      "columns": {
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "opened_at": {
+          "name": "opened_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "status": {
+          "name": "status",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.accounts",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.account_customer_map": {
+      "unique_id": "source.shoply.raw.account_customer_map",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "account_customer_map",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "account_customer_map",
+      "loader": "fivetran",
+      "description": "Which customer owned an account over which interval.",
+      "columns": {
+        "mapping_id": {
+          "name": "mapping_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "description": "",
+          "data_type": "timestamp_tz"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.account_customer_map",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.orders": {
+      "unique_id": "source.shoply.raw.orders",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "orders",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "orders",
+      "loader": "fivetran",
+      "description": "One row per order header.",
+      "columns": {
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "ordered_at": {
+          "name": "ordered_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "status": {
+          "name": "status",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "currency": {
+          "name": "currency",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "shipping_address_id": {
+          "name": "shipping_address_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.orders",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.order_items": {
+      "unique_id": "source.shoply.raw.order_items",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "order_items",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "order_items",
+      "loader": "fivetran",
+      "description": "One row per line item.",
+      "columns": {
+        "order_item_id": {
+          "name": "order_item_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "quantity": {
+          "name": "quantity",
+          "description": "",
+          "data_type": "integer"
+        },
+        "unit_price": {
+          "name": "unit_price",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "discount": {
+          "name": "discount",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.order_items",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.payments": {
+      "unique_id": "source.shoply.raw.payments",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "payments",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "payments",
+      "loader": "stripe",
+      "description": "Payment attempts against orders.",
+      "columns": {
+        "payment_id": {
+          "name": "payment_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "order_id": {
+          "name": "order_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "paid_at": {
+          "name": "paid_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "amount": {
+          "name": "amount",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "method": {
+          "name": "method",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "status": {
+          "name": "status",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.payments",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.refunds": {
+      "unique_id": "source.shoply.raw.refunds",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "refunds",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "refunds",
+      "loader": "stripe",
+      "description": "Refunds issued against payments.",
+      "columns": {
+        "refund_id": {
+          "name": "refund_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "payment_id": {
+          "name": "payment_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "refunded_at": {
+          "name": "refunded_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "amount": {
+          "name": "amount",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "reason": {
+          "name": "reason",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.refunds",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.products": {
+      "unique_id": "source.shoply.raw.products",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "products",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "products",
+      "loader": "fivetran",
+      "description": "Product catalog.",
+      "columns": {
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "sku": {
+          "name": "sku",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "name": {
+          "name": "name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "category_id": {
+          "name": "category_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "list_price": {
+          "name": "list_price",
+          "description": "",
+          "data_type": "number(12,2)"
+        },
+        "active": {
+          "name": "active",
+          "description": "",
+          "data_type": "boolean"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.products",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.categories": {
+      "unique_id": "source.shoply.raw.categories",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "categories",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "categories",
+      "loader": "fivetran",
+      "description": "Product categories, two levels.",
+      "columns": {
+        "category_id": {
+          "name": "category_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "name": {
+          "name": "name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "parent_category_id": {
+          "name": "parent_category_id",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.categories",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.inventory_snapshots": {
+      "unique_id": "source.shoply.raw.inventory_snapshots",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "inventory_snapshots",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "inventory_snapshots",
+      "loader": "airbyte",
+      "description": "Daily on-hand inventory per product and warehouse.",
+      "columns": {
+        "snapshot_date": {
+          "name": "snapshot_date",
+          "description": "",
+          "data_type": "date"
+        },
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "warehouse": {
+          "name": "warehouse",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "on_hand": {
+          "name": "on_hand",
+          "description": "",
+          "data_type": "integer"
+        },
+        "reserved": {
+          "name": "reserved",
+          "description": "",
+          "data_type": "integer"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.inventory_snapshots",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.web_sessions": {
+      "unique_id": "source.shoply.raw.web_sessions",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "web_sessions",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "web_sessions",
+      "loader": "segment",
+      "description": "Web sessions from the analytics SDK.",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "account_id": {
+          "name": "account_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "started_at": {
+          "name": "started_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "device": {
+          "name": "device",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "utm_campaign": {
+          "name": "utm_campaign",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "landing_page": {
+          "name": "landing_page",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.web_sessions",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.page_views": {
+      "unique_id": "source.shoply.raw.page_views",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "page_views",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "page_views",
+      "loader": "segment",
+      "description": "Page views within sessions.",
+      "columns": {
+        "page_view_id": {
+          "name": "page_view_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "session_id": {
+          "name": "session_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "viewed_at": {
+          "name": "viewed_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "path": {
+          "name": "path",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "product_id": {
+          "name": "product_id",
+          "description": "",
+          "data_type": "varchar"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.page_views",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.marketing_campaigns": {
+      "unique_id": "source.shoply.raw.marketing_campaigns",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "marketing_campaigns",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "marketing_campaigns",
+      "loader": "airbyte",
+      "description": "Campaigns with spend and channel.",
+      "columns": {
+        "campaign_id": {
+          "name": "campaign_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "name": {
+          "name": "name",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "channel": {
+          "name": "channel",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "started_at": {
+          "name": "started_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        },
+        "spend_usd": {
+          "name": "spend_usd",
+          "description": "",
+          "data_type": "number(12,2)"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.marketing_campaigns",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    },
+    "source.shoply.raw.email_events": {
+      "unique_id": "source.shoply.raw.email_events",
+      "resource_type": "source",
+      "package_name": "shoply",
+      "path": "models/staging/sources.yml",
+      "original_file_path": "models/staging/sources.yml",
+      "name": "email_events",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "email_events",
+      "loader": "braze",
+      "description": "Email sends, opens, clicks.",
+      "columns": {
+        "event_id": {
+          "name": "event_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "event_type": {
+          "name": "event_type",
+          "description": "",
+          "data_type": "varchar"
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "description": "",
+          "data_type": "timestamp_tz"
+        }
+      },
+      "meta": {},
+      "tags": [],
+      "relation_name": "raw.public.email_events",
+      "freshness": {
+        "warn_after": {
+          "count": 12,
+          "period": "hour"
+        },
+        "error_after": {
+          "count": 24,
+          "period": "hour"
+        }
+      },
+      "loaded_at_field": "_loaded_at"
+    }
+  },
+  "macros": {},
+  "docs": {},
+  "exposures": {
+    "exposure.shoply.sales_app": {
+      "unique_id": "exposure.shoply.sales_app",
+      "resource_type": "exposure",
+      "package_name": "shoply",
+      "name": "sales_app",
+      "label": "Sales App",
+      "type": "application",
+      "owner": {
+        "name": "Sales Engineering",
+        "email": "sales-eng@shoply.example"
+      },
+      "description": "The sales application shows each customer's 30-day spend on the account page.",
+      "url": "https://sales.shoply.example",
+      "maturity": "high",
+      "meta": {
+        "sla_minutes": 5
+      },
+      "tags": [],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.customer_spend_30d",
+          "model.shoply.customer_order_count_30d"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "customer_spend_30d",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "customer_order_count_30d",
+          "package": null,
+          "version": null
+        }
+      ],
+      "path": "models/marts/exposures.yml",
+      "original_file_path": "models/marts/exposures.yml",
+      "fqn": [
+        "shoply",
+        "sales_app"
+      ],
+      "created_at": 1790834400.0
+    },
+    "exposure.shoply.support_agent": {
+      "unique_id": "exposure.shoply.support_agent",
+      "resource_type": "exposure",
+      "package_name": "shoply",
+      "name": "support_agent",
+      "label": "Support Agent",
+      "type": "application",
+      "owner": {
+        "name": "Support Tools",
+        "email": "support-tools@shoply.example"
+      },
+      "description": "An agent that answers support questions about a customer's recent spend.",
+      "url": "https://support.shoply.example/agent",
+      "maturity": "medium",
+      "meta": {
+        "sla_minutes": 15
+      },
+      "tags": [],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.customer_spend_90d",
+          "model.shoply.customer_spend_30d_v2",
+          "model.shoply.household_spend_90d"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "customer_spend_90d",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "customer_spend_30d_v2",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "household_spend_90d",
+          "package": null,
+          "version": null
+        }
+      ],
+      "path": "models/marts/exposures.yml",
+      "original_file_path": "models/marts/exposures.yml",
+      "fqn": [
+        "shoply",
+        "support_agent"
+      ],
+      "created_at": 1790834400.0
+    },
+    "exposure.shoply.marketing_dashboard": {
+      "unique_id": "exposure.shoply.marketing_dashboard",
+      "resource_type": "exposure",
+      "package_name": "shoply",
+      "name": "marketing_dashboard",
+      "label": "Marketing Dashboard",
+      "type": "dashboard",
+      "owner": {
+        "name": "Marketing Analytics",
+        "email": "mkt-analytics@shoply.example"
+      },
+      "description": "Weekly marketing performance dashboard.",
+      "url": "https://bi.shoply.example/dashboards/marketing",
+      "maturity": "medium",
+      "meta": {
+        "sla_minutes": 1440
+      },
+      "tags": [],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.cust_spend_last_30d",
+          "model.shoply.campaign_attribution",
+          "model.shoply.email_engagement_weekly"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "cust_spend_last_30d",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "campaign_attribution",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "email_engagement_weekly",
+          "package": null,
+          "version": null
+        }
+      ],
+      "path": "models/marts/exposures.yml",
+      "original_file_path": "models/marts/exposures.yml",
+      "fqn": [
+        "shoply",
+        "marketing_dashboard"
+      ],
+      "created_at": 1790834400.0
+    },
+    "exposure.shoply.finance_daily_report": {
+      "unique_id": "exposure.shoply.finance_daily_report",
+      "resource_type": "exposure",
+      "package_name": "shoply",
+      "name": "finance_daily_report",
+      "label": "Finance Daily Report",
+      "type": "analysis",
+      "owner": {
+        "name": "Finance",
+        "email": "finance@shoply.example"
+      },
+      "description": "Daily revenue report emailed at 06:00 UTC.",
+      "url": "https://bi.shoply.example/reports/daily-revenue",
+      "maturity": "high",
+      "meta": {
+        "sla_minutes": 60
+      },
+      "tags": [],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.daily_revenue",
+          "model.shoply.fct_payments",
+          "model.shoply.fct_refunds"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "daily_revenue",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "fct_payments",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "fct_refunds",
+          "package": null,
+          "version": null
+        }
+      ],
+      "path": "models/marts/exposures.yml",
+      "original_file_path": "models/marts/exposures.yml",
+      "fqn": [
+        "shoply",
+        "finance_daily_report"
+      ],
+      "created_at": 1790834400.0
+    },
+    "exposure.shoply.exec_kpis": {
+      "unique_id": "exposure.shoply.exec_kpis",
+      "resource_type": "exposure",
+      "package_name": "shoply",
+      "name": "exec_kpis",
+      "label": "Exec Kpis",
+      "type": "dashboard",
+      "owner": {
+        "name": "Finance",
+        "email": "finance@shoply.example"
+      },
+      "description": "Executive KPI dashboard.",
+      "url": "https://bi.shoply.example/dashboards/exec",
+      "maturity": "high",
+      "meta": {
+        "sla_minutes": 1440
+      },
+      "tags": [],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.customer_ltv",
+          "model.shoply.cohort_retention",
+          "model.shoply.daily_revenue"
+        ],
+        "macros": []
+      },
+      "refs": [
+        {
+          "name": "customer_ltv",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "cohort_retention",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "daily_revenue",
+          "package": null,
+          "version": null
+        }
+      ],
+      "path": "models/marts/exposures.yml",
+      "original_file_path": "models/marts/exposures.yml",
+      "fqn": [
+        "shoply",
+        "exec_kpis"
+      ],
+      "created_at": 1790834400.0
+    }
+  },
+  "metrics": {
+    "metric.shoply.revenue": {
+      "unique_id": "metric.shoply.revenue",
+      "resource_type": "metric",
+      "package_name": "shoply",
+      "name": "revenue",
+      "label": "Net revenue",
+      "type": "simple",
+      "description": "Net settled order revenue in USD.",
+      "type_params": {
+        "measure": {
+          "name": "net_order_usd"
+        }
+      },
+      "filter": null,
+      "meta": {},
+      "tags": [],
+      "path": "models/semantic/metrics.yml",
+      "original_file_path": "models/semantic/metrics.yml",
+      "fqn": [
+        "shoply",
+        "revenue"
+      ],
+      "created_at": 1790834400.0
+    },
+    "metric.shoply.orders": {
+      "unique_id": "metric.shoply.orders",
+      "resource_type": "metric",
+      "package_name": "shoply",
+      "name": "orders",
+      "label": "Orders",
+      "type": "simple",
+      "description": "Count of orders.",
+      "type_params": {
+        "measure": {
+          "name": "order_count"
+        }
+      },
+      "filter": null,
+      "meta": {},
+      "tags": [],
+      "path": "models/semantic/metrics.yml",
+      "original_file_path": "models/semantic/metrics.yml",
+      "fqn": [
+        "shoply",
+        "orders"
+      ],
+      "created_at": 1790834400.0
+    },
+    "metric.shoply.average_order_value": {
+      "unique_id": "metric.shoply.average_order_value",
+      "resource_type": "metric",
+      "package_name": "shoply",
+      "name": "average_order_value",
+      "label": "Average order value",
+      "type": "ratio",
+      "description": "Revenue over orders.",
+      "type_params": {
+        "numerator": {
+          "name": "revenue"
+        },
+        "denominator": {
+          "name": "orders"
+        }
+      },
+      "filter": null,
+      "meta": {},
+      "tags": [],
+      "path": "models/semantic/metrics.yml",
+      "original_file_path": "models/semantic/metrics.yml",
+      "fqn": [
+        "shoply",
+        "average_order_value"
+      ],
+      "created_at": 1790834400.0
+    },
+    "metric.shoply.refund_rate": {
+      "unique_id": "metric.shoply.refund_rate",
+      "resource_type": "metric",
+      "package_name": "shoply",
+      "name": "refund_rate",
+      "label": "Refund rate",
+      "type": "ratio",
+      "description": "Refunds over gross payments.",
+      "type_params": {
+        "numerator": {
+          "name": "refunds"
+        },
+        "denominator": {
+          "name": "gross_payments"
+        }
+      },
+      "filter": null,
+      "meta": {},
+      "tags": [],
+      "path": "models/semantic/metrics.yml",
+      "original_file_path": "models/semantic/metrics.yml",
+      "fqn": [
+        "shoply",
+        "refund_rate"
+      ],
+      "created_at": 1790834400.0
+    },
+    "metric.shoply.refunds": {
+      "unique_id": "metric.shoply.refunds",
+      "resource_type": "metric",
+      "package_name": "shoply",
+      "name": "refunds",
+      "label": "Refunds",
+      "type": "simple",
+      "description": "Refunded USD.",
+      "type_params": {
+        "measure": {
+          "name": "refund_usd"
+        }
+      },
+      "filter": null,
+      "meta": {},
+      "tags": [],
+      "path": "models/semantic/metrics.yml",
+      "original_file_path": "models/semantic/metrics.yml",
+      "fqn": [
+        "shoply",
+        "refunds"
+      ],
+      "created_at": 1790834400.0
+    },
+    "metric.shoply.gross_payments": {
+      "unique_id": "metric.shoply.gross_payments",
+      "resource_type": "metric",
+      "package_name": "shoply",
+      "name": "gross_payments",
+      "label": "Gross payments",
+      "type": "simple",
+      "description": "Settled payments USD.",
+      "type_params": {
+        "measure": {
+          "name": "gross_payment_usd"
+        }
+      },
+      "filter": null,
+      "meta": {},
+      "tags": [],
+      "path": "models/semantic/metrics.yml",
+      "original_file_path": "models/semantic/metrics.yml",
+      "fqn": [
+        "shoply",
+        "gross_payments"
+      ],
+      "created_at": 1790834400.0
+    }
+  },
+  "semantic_models": {
+    "semantic_model.shoply.customers": {
+      "unique_id": "semantic_model.shoply.customers",
+      "resource_type": "semantic_model",
+      "package_name": "shoply",
+      "name": "customers",
+      "description": "One row per customer.",
+      "model": "ref('dim_customers')",
+      "node_relation": {
+        "alias": "dim_customers",
+        "schema_name": "marts",
+        "database": "analytics",
+        "relation_name": "analytics.marts.dim_customers"
+      },
+      "defaults": {},
+      "entities": [
+        {
+          "name": "customer",
+          "type": "primary",
+          "expr": "customer_id"
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "region",
+          "type": "categorical"
+        },
+        {
+          "name": "residence_postal_code",
+          "type": "categorical"
+        }
+      ],
+      "measures": [],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.dim_customers"
+        ],
+        "macros": []
+      },
+      "path": "models/semantic/semantic_models.yml",
+      "original_file_path": "models/semantic/semantic_models.yml",
+      "fqn": [
+        "shoply",
+        "customers"
+      ],
+      "created_at": 1790834400.0
+    },
+    "semantic_model.shoply.orders": {
+      "unique_id": "semantic_model.shoply.orders",
+      "resource_type": "semantic_model",
+      "package_name": "shoply",
+      "name": "orders",
+      "description": "One row per order, attributed to the customer who owned the account at order time.",
+      "model": "ref('fct_orders')",
+      "node_relation": {
+        "alias": "fct_orders",
+        "schema_name": "marts",
+        "database": "analytics",
+        "relation_name": "analytics.marts.fct_orders"
+      },
+      "defaults": {
+        "agg_time_dimension": "ordered_at"
+      },
+      "entities": [
+        {
+          "name": "order",
+          "type": "primary",
+          "expr": "order_id"
+        },
+        {
+          "name": "customer",
+          "type": "foreign",
+          "expr": "customer_id"
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "ordered_at",
+          "type": "time",
+          "type_params": {
+            "time_granularity": "day"
+          }
+        },
+        {
+          "name": "status",
+          "type": "categorical"
+        }
+      ],
+      "measures": [
+        {
+          "name": "net_order_usd",
+          "agg": "sum",
+          "expr": "net_usd",
+          "description": "Net settled spend in USD after refunds: what the customer actually paid for the order."
+        },
+        {
+          "name": "order_count",
+          "agg": "count",
+          "expr": "order_id",
+          "description": "Number of orders."
+        }
+      ],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.fct_orders"
+        ],
+        "macros": []
+      },
+      "path": "models/semantic/semantic_models.yml",
+      "original_file_path": "models/semantic/semantic_models.yml",
+      "fqn": [
+        "shoply",
+        "orders"
+      ],
+      "created_at": 1790834400.0
+    },
+    "semantic_model.shoply.payments": {
+      "unique_id": "semantic_model.shoply.payments",
+      "resource_type": "semantic_model",
+      "package_name": "shoply",
+      "name": "payments",
+      "description": "Settled payments.",
+      "model": "ref('fct_payments')",
+      "node_relation": {
+        "alias": "fct_payments",
+        "schema_name": "marts",
+        "database": "analytics",
+        "relation_name": "analytics.marts.fct_payments"
+      },
+      "defaults": {
+        "agg_time_dimension": "paid_at"
+      },
+      "entities": [
+        {
+          "name": "payment",
+          "type": "primary",
+          "expr": "payment_id"
+        },
+        {
+          "name": "customer",
+          "type": "foreign",
+          "expr": "customer_id"
+        },
+        {
+          "name": "order",
+          "type": "foreign",
+          "expr": "order_id"
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "paid_at",
+          "type": "time",
+          "type_params": {
+            "time_granularity": "day"
+          }
+        },
+        {
+          "name": "method",
+          "type": "categorical"
+        }
+      ],
+      "measures": [
+        {
+          "name": "gross_payment_usd",
+          "agg": "sum",
+          "expr": "amount",
+          "description": "Settled payment amount in USD."
+        }
+      ],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.fct_payments"
+        ],
+        "macros": []
+      },
+      "path": "models/semantic/semantic_models.yml",
+      "original_file_path": "models/semantic/semantic_models.yml",
+      "fqn": [
+        "shoply",
+        "payments"
+      ],
+      "created_at": 1790834400.0
+    },
+    "semantic_model.shoply.refunds": {
+      "unique_id": "semantic_model.shoply.refunds",
+      "resource_type": "semantic_model",
+      "package_name": "shoply",
+      "name": "refunds",
+      "description": "Refunds issued.",
+      "model": "ref('fct_refunds')",
+      "node_relation": {
+        "alias": "fct_refunds",
+        "schema_name": "marts",
+        "database": "analytics",
+        "relation_name": "analytics.marts.fct_refunds"
+      },
+      "defaults": {
+        "agg_time_dimension": "refunded_at"
+      },
+      "entities": [
+        {
+          "name": "refund",
+          "type": "primary",
+          "expr": "refund_id"
+        },
+        {
+          "name": "customer",
+          "type": "foreign",
+          "expr": "customer_id"
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "refunded_at",
+          "type": "time",
+          "type_params": {
+            "time_granularity": "day"
+          }
+        }
+      ],
+      "measures": [
+        {
+          "name": "refund_usd",
+          "agg": "sum",
+          "expr": "amount",
+          "description": "Refunded amount in USD."
+        }
+      ],
+      "depends_on": {
+        "nodes": [
+          "model.shoply.fct_refunds"
+        ],
+        "macros": []
+      },
+      "path": "models/semantic/semantic_models.yml",
+      "original_file_path": "models/semantic/semantic_models.yml",
+      "fqn": [
+        "shoply",
+        "refunds"
+      ],
+      "created_at": 1790834400.0
+    }
+  },
+  "saved_queries": {},
+  "groups": {
+    "group.shoply.data-platform": {
+      "name": "data-platform",
+      "owner": {
+        "name": "data-platform",
+        "email": "data-platform@shoply.example"
+      }
+    },
+    "group.shoply.finance": {
+      "name": "finance",
+      "owner": {
+        "name": "finance",
+        "email": "finance@shoply.example"
+      }
+    },
+    "group.shoply.marketing-analytics": {
+      "name": "marketing-analytics",
+      "owner": {
+        "name": "marketing-analytics",
+        "email": "marketing-analytics@shoply.example"
+      }
+    },
+    "group.shoply.merchandising": {
+      "name": "merchandising",
+      "owner": {
+        "name": "merchandising",
+        "email": "merchandising@shoply.example"
+      }
+    },
+    "group.shoply.sales-engineering": {
+      "name": "sales-engineering",
+      "owner": {
+        "name": "sales-engineering",
+        "email": "sales-engineering@shoply.example"
+      }
+    },
+    "group.shoply.support-tools": {
+      "name": "support-tools",
+      "owner": {
+        "name": "support-tools",
+        "email": "support-tools@shoply.example"
+      }
+    }
+  },
+  "selectors": {},
+  "disabled": {},
+  "parent_map": {
+    "model.shoply.stg_customers": [
+      "source.shoply.raw.customers"
+    ],
+    "model.shoply.stg_addresses": [
+      "source.shoply.raw.addresses"
+    ],
+    "model.shoply.stg_accounts": [
+      "source.shoply.raw.accounts"
+    ],
+    "model.shoply.stg_account_customer_map": [
+      "source.shoply.raw.account_customer_map"
+    ],
+    "model.shoply.stg_orders": [
+      "source.shoply.raw.orders"
+    ],
+    "model.shoply.stg_order_items": [
+      "source.shoply.raw.order_items"
+    ],
+    "model.shoply.stg_payments": [
+      "source.shoply.raw.payments"
+    ],
+    "model.shoply.stg_refunds": [
+      "source.shoply.raw.refunds"
+    ],
+    "model.shoply.stg_products": [
+      "source.shoply.raw.products"
+    ],
+    "model.shoply.stg_categories": [
+      "source.shoply.raw.categories"
+    ],
+    "model.shoply.stg_inventory_snapshots": [
+      "source.shoply.raw.inventory_snapshots"
+    ],
+    "model.shoply.stg_web_sessions": [
+      "source.shoply.raw.web_sessions"
+    ],
+    "model.shoply.stg_page_views": [
+      "source.shoply.raw.page_views"
+    ],
+    "model.shoply.stg_marketing_campaigns": [
+      "source.shoply.raw.marketing_campaigns"
+    ],
+    "model.shoply.stg_email_events": [
+      "source.shoply.raw.email_events"
+    ],
+    "model.shoply.int_customer_identity": [
+      "model.shoply.stg_account_customer_map"
+    ],
+    "model.shoply.int_orders_with_payments": [
+      "model.shoply.stg_orders",
+      "model.shoply.stg_payments",
+      "model.shoply.stg_refunds"
+    ],
+    "model.shoply.int_order_items_enriched": [
+      "model.shoply.stg_order_items",
+      "model.shoply.stg_products",
+      "model.shoply.stg_categories"
+    ],
+    "model.shoply.int_customer_daily_spend": [
+      "model.shoply.int_orders_with_payments",
+      "model.shoply.int_customer_identity"
+    ],
+    "model.shoply.int_sessions_attributed": [
+      "model.shoply.stg_web_sessions",
+      "model.shoply.int_customer_identity"
+    ],
+    "model.shoply.dim_customers": [
+      "model.shoply.stg_customers",
+      "model.shoply.stg_addresses",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.dim_products": [
+      "model.shoply.stg_products",
+      "model.shoply.stg_categories"
+    ],
+    "model.shoply.fct_orders": [
+      "model.shoply.int_orders_with_payments",
+      "model.shoply.int_customer_identity"
+    ],
+    "model.shoply.fct_order_items": [
+      "model.shoply.int_order_items_enriched",
+      "model.shoply.fct_orders"
+    ],
+    "model.shoply.fct_payments": [
+      "model.shoply.stg_payments",
+      "model.shoply.fct_orders"
+    ],
+    "model.shoply.fct_refunds": [
+      "model.shoply.stg_refunds",
+      "model.shoply.fct_payments"
+    ],
+    "model.shoply.fct_sessions": [
+      "model.shoply.int_sessions_attributed",
+      "model.shoply.stg_page_views"
+    ],
+    "model.shoply.customer_spend_30d": [
+      "model.shoply.stg_customers",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.cust_spend_last_30d": [
+      "model.shoply.stg_customers",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.customer_spend_30d_v2": [
+      "model.shoply.stg_customers",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.customer_spend_90d": [
+      "model.shoply.stg_customers",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.customer_order_count_30d": [
+      "model.shoply.stg_customers",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.customer_ltv": [
+      "model.shoply.stg_customers",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.household_spend_90d": [
+      "model.shoply.dim_customers",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.product_sales_daily": [
+      "model.shoply.fct_order_items"
+    ],
+    "model.shoply.category_sales_monthly": [
+      "model.shoply.fct_order_items"
+    ],
+    "model.shoply.daily_revenue": [
+      "model.shoply.fct_payments",
+      "model.shoply.fct_refunds"
+    ],
+    "model.shoply.campaign_attribution": [
+      "model.shoply.fct_sessions",
+      "model.shoply.fct_orders",
+      "model.shoply.stg_marketing_campaigns"
+    ],
+    "model.shoply.inventory_health": [
+      "model.shoply.stg_inventory_snapshots",
+      "model.shoply.product_sales_daily"
+    ],
+    "model.shoply.cohort_retention": [
+      "model.shoply.dim_customers",
+      "model.shoply.int_customer_daily_spend"
+    ],
+    "model.shoply.email_engagement_weekly": [
+      "model.shoply.stg_email_events",
+      "model.shoply.stg_marketing_campaigns"
+    ],
+    "exposure.shoply.sales_app": [
+      "model.shoply.customer_spend_30d",
+      "model.shoply.customer_order_count_30d"
+    ],
+    "exposure.shoply.support_agent": [
+      "model.shoply.customer_spend_90d",
+      "model.shoply.customer_spend_30d_v2",
+      "model.shoply.household_spend_90d"
+    ],
+    "exposure.shoply.marketing_dashboard": [
+      "model.shoply.cust_spend_last_30d",
+      "model.shoply.campaign_attribution",
+      "model.shoply.email_engagement_weekly"
+    ],
+    "exposure.shoply.finance_daily_report": [
+      "model.shoply.daily_revenue",
+      "model.shoply.fct_payments",
+      "model.shoply.fct_refunds"
+    ],
+    "exposure.shoply.exec_kpis": [
+      "model.shoply.customer_ltv",
+      "model.shoply.cohort_retention",
+      "model.shoply.daily_revenue"
+    ]
+  },
+  "child_map": {
+    "source.shoply.raw.customers": [
+      "model.shoply.stg_customers"
+    ],
+    "source.shoply.raw.addresses": [
+      "model.shoply.stg_addresses"
+    ],
+    "source.shoply.raw.accounts": [
+      "model.shoply.stg_accounts"
+    ],
+    "source.shoply.raw.account_customer_map": [
+      "model.shoply.stg_account_customer_map"
+    ],
+    "source.shoply.raw.orders": [
+      "model.shoply.stg_orders"
+    ],
+    "source.shoply.raw.order_items": [
+      "model.shoply.stg_order_items"
+    ],
+    "source.shoply.raw.payments": [
+      "model.shoply.stg_payments"
+    ],
+    "source.shoply.raw.refunds": [
+      "model.shoply.stg_refunds"
+    ],
+    "source.shoply.raw.products": [
+      "model.shoply.stg_products"
+    ],
+    "source.shoply.raw.categories": [
+      "model.shoply.stg_categories"
+    ],
+    "source.shoply.raw.inventory_snapshots": [
+      "model.shoply.stg_inventory_snapshots"
+    ],
+    "source.shoply.raw.web_sessions": [
+      "model.shoply.stg_web_sessions"
+    ],
+    "source.shoply.raw.page_views": [
+      "model.shoply.stg_page_views"
+    ],
+    "source.shoply.raw.marketing_campaigns": [
+      "model.shoply.stg_marketing_campaigns"
+    ],
+    "source.shoply.raw.email_events": [
+      "model.shoply.stg_email_events"
+    ],
+    "model.shoply.stg_customers": [
+      "model.shoply.dim_customers",
+      "model.shoply.customer_spend_30d",
+      "model.shoply.cust_spend_last_30d",
+      "model.shoply.customer_spend_30d_v2",
+      "model.shoply.customer_spend_90d",
+      "model.shoply.customer_order_count_30d",
+      "model.shoply.customer_ltv"
+    ],
+    "model.shoply.stg_addresses": [
+      "model.shoply.dim_customers"
+    ],
+    "model.shoply.stg_accounts": [],
+    "model.shoply.stg_account_customer_map": [
+      "model.shoply.int_customer_identity"
+    ],
+    "model.shoply.stg_orders": [
+      "model.shoply.int_orders_with_payments"
+    ],
+    "model.shoply.stg_order_items": [
+      "model.shoply.int_order_items_enriched"
+    ],
+    "model.shoply.stg_payments": [
+      "model.shoply.int_orders_with_payments",
+      "model.shoply.fct_payments"
+    ],
+    "model.shoply.stg_refunds": [
+      "model.shoply.int_orders_with_payments",
+      "model.shoply.fct_refunds"
+    ],
+    "model.shoply.stg_products": [
+      "model.shoply.int_order_items_enriched",
+      "model.shoply.dim_products"
+    ],
+    "model.shoply.stg_categories": [
+      "model.shoply.int_order_items_enriched",
+      "model.shoply.dim_products"
+    ],
+    "model.shoply.stg_inventory_snapshots": [
+      "model.shoply.inventory_health"
+    ],
+    "model.shoply.stg_web_sessions": [
+      "model.shoply.int_sessions_attributed"
+    ],
+    "model.shoply.stg_page_views": [
+      "model.shoply.fct_sessions"
+    ],
+    "model.shoply.stg_marketing_campaigns": [
+      "model.shoply.campaign_attribution",
+      "model.shoply.email_engagement_weekly"
+    ],
+    "model.shoply.stg_email_events": [
+      "model.shoply.email_engagement_weekly"
+    ],
+    "model.shoply.int_customer_identity": [
+      "model.shoply.int_customer_daily_spend",
+      "model.shoply.int_sessions_attributed",
+      "model.shoply.fct_orders"
+    ],
+    "model.shoply.int_orders_with_payments": [
+      "model.shoply.int_customer_daily_spend",
+      "model.shoply.fct_orders"
+    ],
+    "model.shoply.int_order_items_enriched": [
+      "model.shoply.fct_order_items"
+    ],
+    "model.shoply.int_customer_daily_spend": [
+      "model.shoply.dim_customers",
+      "model.shoply.customer_spend_30d",
+      "model.shoply.cust_spend_last_30d",
+      "model.shoply.customer_spend_30d_v2",
+      "model.shoply.customer_spend_90d",
+      "model.shoply.customer_order_count_30d",
+      "model.shoply.customer_ltv",
+      "model.shoply.household_spend_90d",
+      "model.shoply.cohort_retention"
+    ],
+    "model.shoply.int_sessions_attributed": [
+      "model.shoply.fct_sessions"
+    ],
+    "model.shoply.dim_customers": [
+      "model.shoply.household_spend_90d",
+      "model.shoply.cohort_retention"
+    ],
+    "model.shoply.dim_products": [],
+    "model.shoply.fct_orders": [
+      "model.shoply.fct_order_items",
+      "model.shoply.fct_payments",
+      "model.shoply.campaign_attribution"
+    ],
+    "model.shoply.fct_order_items": [
+      "model.shoply.product_sales_daily",
+      "model.shoply.category_sales_monthly"
+    ],
+    "model.shoply.fct_payments": [
+      "model.shoply.fct_refunds",
+      "model.shoply.daily_revenue",
+      "exposure.shoply.finance_daily_report"
+    ],
+    "model.shoply.fct_refunds": [
+      "model.shoply.daily_revenue",
+      "exposure.shoply.finance_daily_report"
+    ],
+    "model.shoply.fct_sessions": [
+      "model.shoply.campaign_attribution"
+    ],
+    "model.shoply.customer_spend_30d": [
+      "exposure.shoply.sales_app"
+    ],
+    "model.shoply.cust_spend_last_30d": [
+      "exposure.shoply.marketing_dashboard"
+    ],
+    "model.shoply.customer_spend_30d_v2": [
+      "exposure.shoply.support_agent"
+    ],
+    "model.shoply.customer_spend_90d": [
+      "exposure.shoply.support_agent"
+    ],
+    "model.shoply.customer_order_count_30d": [
+      "exposure.shoply.sales_app"
+    ],
+    "model.shoply.customer_ltv": [
+      "exposure.shoply.exec_kpis"
+    ],
+    "model.shoply.household_spend_90d": [
+      "exposure.shoply.support_agent"
+    ],
+    "model.shoply.product_sales_daily": [
+      "model.shoply.inventory_health"
+    ],
+    "model.shoply.category_sales_monthly": [],
+    "model.shoply.daily_revenue": [
+      "exposure.shoply.finance_daily_report",
+      "exposure.shoply.exec_kpis"
+    ],
+    "model.shoply.campaign_attribution": [
+      "exposure.shoply.marketing_dashboard"
+    ],
+    "model.shoply.inventory_health": [],
+    "model.shoply.cohort_retention": [
+      "exposure.shoply.exec_kpis"
+    ],
+    "model.shoply.email_engagement_weekly": [
+      "exposure.shoply.marketing_dashboard"
+    ]
+  },
+  "unit_tests": {}
+}

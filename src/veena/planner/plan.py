@@ -64,16 +64,19 @@ class IdentityJoin(_Step):
 
     kind: Literal["identity_join"] = "identity_join"
     policy: SemanticRef
-    mapping_source: str
-    mapping_table: str
+    mapping_source: str = ""
+    mapping_table: str = ""
     fact_key: str
-    mapping_fact_key: str
-    mapping_entity_key: str
+    mapping_fact_key: str = ""
+    mapping_entity_key: str = ""
     entity_key: str
     fact_timestamp: str
-    valid_from: str
-    valid_to: str
+    valid_from: str = ""
+    valid_to: str = ""
     respect_validity: bool = True
+    direct: bool = Field(
+        default=False, description="The fact carries the entity key in fact_key; no join is needed."
+    )
 
 
 class AssetScan(_Step):
@@ -235,6 +238,8 @@ def step_output_columns(step: Step, inputs: tuple[str, ...]) -> tuple[str, ...]:
         case WindowStep():
             return inputs
         case IdentityJoin():
+            if step.direct and step.fact_key == step.entity_key:
+                return inputs
             return (*inputs, step.entity_key)
         case Aggregate():
             bucket = BUCKET_COLUMN.get(step.time_bucket)
@@ -269,6 +274,8 @@ def _describe_step(step: Step) -> str:
             what = "complete days" if step.complete_calendar_days else "days of history"
             return f"window trailing {step.days} {what} in {step.timezone}"
         case IdentityJoin():
+            if step.direct:
+                return f"take {step.entity_key} directly from the fact's {step.fact_key}"
             how = "at fact time" if step.respect_validity else "ignoring validity"
             return f"join {step.mapping_source} on {step.fact_key} {how} -> {step.entity_key}"
         case Aggregate():

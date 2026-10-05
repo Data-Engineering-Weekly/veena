@@ -1,0 +1,26 @@
+# The shared intermediate the engine proposes once the 30-day and 90-day requests overlap.
+asset_id: customer_spend_daily
+spec_version: 1
+population:
+  entity: semantic:customer@1
+  include_inactive: false
+grain:
+  keys: [semantic:customer@1]
+  time_bucket: day
+measures:
+  - name: spend_usd
+    calculation: semantic:purchase_amount_usd@4
+    aggregation: sum
+window:
+  history_days: 120
+  timezone: UTC
+identity_policy: semantic:customer_identity_point_in_time@2
+service:
+  incorporate_within: PT5M
+  access_policy: policy:workspace_access@1
+  budget_policy: policy:workspace_budget@1
+provenance:
+  grain.time_bucket: decision:engine_overlap_p28
+  window.history_days: decision:engine_overlap_p28
+  measures.spend_usd.calculation: policy:approved_spending_semantics@4
+  identity_policy: policy:approved_spending_semantics@4

@@ -1,0 +1,87 @@
+[project]
+name = "veena"
+version = "0.1.0"
+description = "Self-organizing data stack: consumers declare outcomes, the engine maintains the asset graph."
+readme = "README.md"
+authors = [
+    { name = "Ananth Packkildurai", email = "apackkildurai@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "duckdb>=1.4",
+    "pydantic>=2.11",
+    "pytz>=2025.2",  # duckdb needs it to return TIMESTAMPTZ values to Python
+    "pyyaml>=6.0",
+    "sqlglot>=27.0",
+    "typer>=0.17",
+]
+
+[project.scripts]
+veena = "veena.cli:app"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17",
+    "pytest>=8.4",
+    "ruff>=0.13",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",      # pycodestyle, pyflakes
+    "I",                # isort
+    "N",                # pep8-naming
+    "UP",               # pyupgrade
+    "B",                # bugbear
+    "SIM",              # simplify
+    "RUF",              # ruff-specific
+    "D",                # pydocstyle
+    "ANN",              # annotations
+    "PTH",              # pathlib
+    "RET",              # return
+    "TCH",              # type-checking imports
+]
+ignore = [
+    "D100", "D104",     # module/package docstrings are optional
+    "D203", "D213",     # conflict with D211/D212
+    "ANN401",           # Any is allowed where the payload is open-ended
+]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "ANN"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["duckdb.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false

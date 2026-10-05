@@ -1,0 +1,258 @@
+"""DuckDB backend: the development and test engine."""
+
+from __future__ import annotations
+
+from datetime import UTC
+from typing import TYPE_CHECKING
+
+import duckdb
+import sqlglot
+from sqlglot import exp
+
+from veena.backends.protocol import DraftStepRequest, SourceProgress
+from veena.calendar import sql_timestamptz, window_bounds
+from veena.errors import BackendError, PlanError
+from veena.planner.plan import (
+    BUCKET_COLUMN,
+    EVENT_AT,
+    Aggregate,
+    IdentityJoin,
+    Plan,
+    PopulationJoin,
+    SourceScan,
+    Step,
+    TimeAttribution,
+    WindowStep,
+    step_output_columns,
+)
+from veena.spec.model import Aggregation, TimeBucket
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from datetime import datetime
+
+    from veena.models.protocol import Drafter
+
+_AGG_SQL = {
+    Aggregation.SUM: "SUM({e})",
+    Aggregation.COUNT: "COUNT({e})",
+    Aggregation.MIN: "MIN({e})",
+    Aggregation.MAX: "MAX({e})",
+    Aggregation.AVG: "AVG({e})",
+    Aggregation.COUNT_DISTINCT: "COUNT(DISTINCT {e})",
+}
+_BUCKET_SQL = {
+    TimeBucket.DAY: "CAST({ts} AT TIME ZONE '{tz}' AS DATE)",
+    TimeBucket.MONTH: "CAST(DATE_TRUNC('month', {ts} AT TIME ZONE '{tz}') AS DATE)",
+}
+
+
+class DuckDBBackend:
+    """Renders plans to DuckDB SQL and runs them on one connection.
+
+    `unsupported` lists step kinds this instance refuses to render itself, so a drafter can be
+    exercised. The compiler never needs it; tests do.
+    """
+
+    name = "duckdb"
+
+    def __init__(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        *,
+        drafter: Drafter | None = None,
+        unsupported: frozenset[str] = frozenset(),
+    ) -> None:
+        """Wrap an open connection."""
+        self._conn = conn
+        self._drafter = drafter
+        self._unsupported = unsupported
+
+    def render(self, plan: Plan, *, as_of: datetime) -> tuple[str, tuple[str, ...]]:
+        """Render a plan as a chain of CTEs, one per step."""
+        ctes: list[str] = []
+        drafted: list[str] = []
+        columns: tuple[str, ...] = ()
+        previous = ""
+        allowed = _allowed_tables(plan)
+        for index, step in enumerate(plan.steps):
+            name = f"s{index}"
+            outputs = step_output_columns(step, columns)
+            if step.kind in self._unsupported:
+                body = self._draft_step(step, previous, columns, outputs, allowed)
+                drafted.append(step.kind)
+            else:
+                body = self._render_step(step, previous, columns, as_of)
+            ctes.append(f"{name} AS (\n{body}\n)")
+            columns = outputs
+            previous = name
+        sql = "WITH\n" + ",\n".join(ctes) + f"\nSELECT * FROM {previous}"
+        return sql, tuple(drafted)
+
+    def materialize(self, implementation_id: str, sql: str, plan: Plan) -> SourceProgress:
+        """Create or replace the table for an implementation and measure source progress."""
+        try:
+            self._conn.execute(f"CREATE OR REPLACE TABLE {implementation_id} AS {sql}")
+            row = self._conn.execute(f"SELECT count(*) FROM {implementation_id}").fetchone()
+        except duckdb.Error as exc:
+            msg = f"materialize {implementation_id}: {exc}"
+            raise BackendError(msg) from exc
+        return SourceProgress(positions=self._progress(plan), row_count=int(row[0]) if row else 0)
+
+    def publish(self, asset_id: str, implementation_id: str) -> None:
+        """Create or repoint the asset's view in one statement."""
+        try:
+            self._conn.execute(
+                f"CREATE OR REPLACE VIEW {asset_id} AS SELECT * FROM {implementation_id}"
+            )
+        except duckdb.Error as exc:
+            msg = f"publish {asset_id} -> {implementation_id}: {exc}"
+            raise BackendError(msg) from exc
+
+    def execute(self, sql: str) -> Sequence[tuple[object, ...]]:
+        """Run a query and return all rows."""
+        try:
+            return self._conn.execute(sql).fetchall()
+        except duckdb.Error as exc:
+            msg = f"query failed: {exc}"
+            raise BackendError(msg) from exc
+
+    def _progress(self, plan: Plan) -> dict[str, datetime]:
+        scan = plan.step(SourceScan)
+        attribution = plan.step(TimeAttribution)
+        row = self._conn.execute(
+            f"SELECT max({attribution.timestamp_column}) FROM {scan.table}"
+        ).fetchone()
+        if row is None or row[0] is None:
+            return {}
+        position: datetime = row[0]
+        return {scan.source: position.astimezone(UTC)}
+
+    def _render_step(
+        self, step: Step, previous: str, columns: tuple[str, ...], as_of: datetime
+    ) -> str:
+        match step:
+            case SourceScan():
+                return f"  SELECT {', '.join(step.columns)} FROM {step.table}"
+            case TimeAttribution():
+                return f"  SELECT *, {step.timestamp_column} AS {EVENT_AT} FROM {previous}"
+            case WindowStep():
+                start, end = window_bounds(as_of, step.days, step.timezone)
+                return (
+                    f"  SELECT * FROM {previous}\n"
+                    f"  WHERE {EVENT_AT} >= {sql_timestamptz(start)} "
+                    f"AND {EVENT_AT} < {sql_timestamptz(end)}"
+                )
+            case IdentityJoin():
+                on = f"m.{step.mapping_fact_key} = f.{step.fact_key}"
+                if step.respect_validity:
+                    on += (
+                        f"\n    AND f.{step.fact_timestamp} >= m.{step.valid_from}"
+                        f"\n    AND (m.{step.valid_to} IS NULL "
+                        f"OR f.{step.fact_timestamp} < m.{step.valid_to})"
+                    )
+                return (
+                    f"  SELECT f.*, m.{step.mapping_entity_key} AS {step.entity_key}\n"
+                    f"  FROM {previous} f\n  JOIN {step.mapping_table} m ON {on}"
+                )
+            case Aggregate():
+                keys = [step.entity_key]
+                selects = [step.entity_key]
+                if step.time_bucket in BUCKET_COLUMN:
+                    bucket = _BUCKET_SQL[step.time_bucket].format(ts=EVENT_AT, tz=step.timezone)
+                    selects.append(f"{bucket} AS {BUCKET_COLUMN[step.time_bucket]}")
+                    keys.append(bucket)
+                for m in step.measures:
+                    selects.append(
+                        f"{_AGG_SQL[m.aggregation].format(e=f'({m.expression})')} AS {m.name}"
+                    )
+                return (
+                    f"  SELECT {', '.join(selects)}\n  FROM {previous}\n"
+                    f"  GROUP BY {', '.join(keys)}"
+                )
+            case PopulationJoin():
+                selects = [f"c.{step.entity_key} AS {step.entity_key}"]
+                selects += [f"a.{col}" for col in step.carry]
+                selects += [f"COALESCE(a.{col}, 0) AS {col}" for col in step.zero_fill]
+                return (
+                    f"  SELECT {', '.join(selects)}\n  FROM {step.entity_table} c\n"
+                    f"  LEFT JOIN {previous} a ON a.{step.entity_key} = c.{step.entity_key}"
+                )
+
+    def _draft_step(
+        self,
+        step: Step,
+        previous: str,
+        columns: tuple[str, ...],
+        outputs: tuple[str, ...],
+        allowed: tuple[str, ...],
+    ) -> str:
+        if self._drafter is None:
+            msg = f"backend {self.name} cannot render step {step.kind} and no drafter is configured"
+            raise PlanError(msg)
+        request = DraftStepRequest(
+            backend=self.name,
+            step=step,
+            input_relation=previous,
+            input_columns=columns,
+            output_columns=outputs,
+            allowed_tables=(previous, *allowed) if previous else allowed,
+        )
+        draft = self._drafter.draft(request)
+        _check_draft_tables(draft, request)
+        self._check_draft_columns(draft, request)
+        return "  " + draft.strip()
+
+    def _check_draft_columns(self, draft: str, request: DraftStepRequest) -> None:
+        if not request.input_relation:
+            probe = f"DESCRIBE {draft}"
+        else:
+            # The input CTE does not exist on its own, so describe the draft over an empty copy.
+            probe = (
+                f"DESCRIBE WITH {request.input_relation} AS "
+                f"(SELECT {', '.join(f'NULL AS {c}' for c in request.input_columns)} WHERE false) "
+                f"{draft}"
+            )
+        try:
+            rows = self._conn.execute(probe).fetchall()
+        except duckdb.Error as exc:
+            msg = f"drafted step {request.step.kind} does not parse on {self.name}: {exc}"
+            raise PlanError(msg) from exc
+        produced = tuple(str(r[0]) for r in rows)
+        if produced != request.output_columns:
+            msg = (
+                f"drafted step {request.step.kind} produces columns {list(produced)}, "
+                f"plan expects {list(request.output_columns)}"
+            )
+            raise PlanError(msg)
+
+
+def _allowed_tables(plan: Plan) -> tuple[str, ...]:
+    names: list[str] = []
+    for step in plan.steps:
+        match step:
+            case SourceScan():
+                names.append(step.table)
+            case IdentityJoin():
+                names.append(step.mapping_table)
+            case PopulationJoin():
+                names.append(step.entity_table)
+            case _:
+                pass
+    return tuple(names)
+
+
+def _check_draft_tables(draft: str, request: DraftStepRequest) -> None:
+    try:
+        tree = sqlglot.parse_one(draft, read="duckdb")
+    except sqlglot.errors.ParseError as exc:
+        msg = f"drafted step {request.step.kind} does not parse: {exc}"
+        raise PlanError(msg) from exc
+    referenced = {t.name for t in tree.find_all(exp.Table)}
+    extra = referenced - set(request.allowed_tables)
+    if extra:
+        msg = (
+            f"drafted step {request.step.kind} reads {sorted(extra)}, "
+            f"which the plan does not declare"
+        )
+        raise PlanError(msg)

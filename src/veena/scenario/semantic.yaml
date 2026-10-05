@@ -1,0 +1,54 @@
+# Approved meaning for the customer-spend scenario. People own this file; the engine reads it.
+sources:
+  - name: customers
+    table: customers
+    primary_key: [customer_id]
+    columns: [customer_id, created_at, region]
+  - name: accounts
+    table: accounts
+    primary_key: [account_id]
+    columns: [account_id, opened_at]
+  - name: identity_mappings
+    table: identity_mappings
+    primary_key: [mapping_id]
+    columns: [mapping_id, account_id, customer_id, valid_from, valid_to]
+  - name: purchases
+    table: purchases
+    primary_key: [purchase_id]
+    columns: [purchase_id, account_id, purchased_at, amount_usd, status]
+
+entities:
+  - name: customer
+    version: 1
+    source: customers
+    key: customer_id
+    description: One row per registered customer, including customers with no purchases.
+
+calculations:
+  - name: purchase_amount_usd
+    version: 4
+    source: purchases
+    expression: "CASE WHEN status = 'settled' THEN amount_usd ELSE 0 END"
+    unit: USD
+    description: Settled purchase amount. Refunded purchases contribute zero.
+
+time_rules:
+  - name: purchase_date
+    version: 1
+    source: purchases
+    timestamp_column: purchased_at
+    timezone: UTC
+
+identity_policies:
+  - name: customer_identity_point_in_time
+    version: 2
+    entity: semantic:customer@1
+    fact_source: purchases
+    fact_key: account_id
+    fact_timestamp: purchased_at
+    mapping_source: identity_mappings
+    mapping_fact_key: account_id
+    mapping_entity_key: customer_id
+    valid_from: valid_from
+    valid_to: valid_to
+    description: A purchase belongs to the customer who owned the account at purchase time.

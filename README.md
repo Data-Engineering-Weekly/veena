@@ -1,0 +1,57 @@
+# veena
+
+Veena is a self-organizing data stack. A consumer, human or agent, asks for a data outcome and the commitment they need. The engine decides which assets should exist, builds them, verifies them against approved definitions, and reorganizes the graph when later requests overlap. People keep ownership of meaning: definitions, policies, and decisions.
+
+The design comes from "The Self-Organizing Data Stack" (Ananth Packkildurai, Data Engineering Weekly, Sep 28 2026).
+
+## The idea in one example
+
+A sales application asks for each customer's spend over the previous 30 complete UTC days. No such asset exists. The engine resolves the request into a specification, builds a direct aggregation over purchases, verifies it, and publishes `customer_spend_30d`.
+
+A month later a support agent asks for the same metric over 90 days. The engine compares the two specifications and finds they share the same amount definition, identity policy, and calendar boundaries. It proposes a customer-by-day asset, verifies both windows against it, and rewires the 30-day asset to read from it. The sales application sees the same answer through a different implementation.
+
+Veena is the engine that owns that rewiring.
+
+## Status
+
+Early build. Phases 1 and 2 are done. These parts exist and are tested:
+
+| Part | What it does |
+|---|---|
+| Specification IR | Models what an asset means: population, grain, measures, window, identity policy, service requirements. |
+| Subsumption | Decides whether one spec can serve another, from specs alone. Reports the operations needed or every reason it cannot. |
+| Semantic model | Entities, sources, approved calculations, time rules, identity policies, all versioned. |
+| Registry | Event-sourced log of requests, specs, commitments, questions, decisions, proposals, verifications, deployments. SQLite store with revision checks. |
+| Scenario | Synthetic DuckDB workspace that reproduces the article's story, including the double-count trap. |
+| Planner | Deterministic compiler from a spec plus the semantic model to a backend-neutral plan. No model call. |
+| DuckDB backend | Renders a plan to SQL, materializes an implementation, publishes the asset's view, reports source progress. |
+| Verification | Generates uniqueness, population, reconciliation, and conservation checks from the semantic model. Never reads the candidate's SQL. Grades its evidence. |
+| Coordinator | Propose, implement, verify, deploy. Re-plans up to a bound, then asks a person. Refuses to deploy if a commitment changed. |
+| CLI | `veena` wraps all of the above. |
+
+Not built yet, in order: overlap proposals and rewiring, natural-language request resolution, shadow mode on a real warehouse, and the operator view.
+
+## Quick start
+
+```bash
+uv sync
+uv run veena scenario build
+uv run veena asset request src/veena/scenario/specs/customer_spend_30d.yaml --consumer app:sales
+uv run veena asset activate customer_spend_30d
+uv run veena asset show customer_spend_30d
+```
+
+See [USAGE.md](USAGE.md) for every command and the file formats. See [prd/](prd/README.md) for the requirements of every phase. See [DEVELOPERS.md](DEVELOPERS.md) to work on the code. See [AGENTS.md](AGENTS.md) for the vocabulary and the rules that apply to every change.
+
+## Design in brief
+
+* Assets declare; the engine acts. An asset keeps its identity while its implementation changes.
+* Commitments are first-class. The registry records who depends on each asset and what was promised, separately from the code that fulfills it.
+* Reuse is decided from definitions, not from SQL or samples. Similar column names never prove the same meaning.
+* Verification does not trust the author. Checks are generated from the semantic model and never read a candidate's SQL.
+* Decisions are data. Every clarification, choice, proposal, verification, and deployment is an event with an actor, an authority, and the records that caused it.
+* Models nominate and draft; they never authorize. A classifier model picks from closed sets with a calibrated probability, a generative model drafts SQL and prose, and a decision table or a validator decides what happens. Every call site is listed in the vision PRD.
+
+## License
+
+Not yet chosen.

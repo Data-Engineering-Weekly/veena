@@ -1,0 +1,25 @@
+asset_id: customer_spend_90d
+spec_version: 1
+population:
+  entity: semantic:customer@1
+  include_inactive: true
+grain:
+  keys: [semantic:customer@1]
+  time_bucket: none
+measures:
+  - name: spend_usd
+    calculation: semantic:purchase_amount_usd@4
+    aggregation: sum
+window:
+  complete_calendar_days: 90
+  timezone: UTC
+identity_policy: semantic:customer_identity_point_in_time@2
+service:
+  incorporate_within: PT5M
+  access_policy: policy:workspace_access@1
+  budget_policy: policy:workspace_budget@1
+provenance:
+  population.entity: message:m2
+  window.complete_calendar_days: message:m2
+  measures.spend_usd.calculation: policy:approved_spending_semantics@4
+  identity_policy: policy:approved_spending_semantics@4

@@ -76,6 +76,41 @@ class IdentityJoin(_Step):
     respect_validity: bool = True
 
 
+class AssetScan(_Step):
+    """Read a published asset through one of its implementations instead of a source."""
+
+    kind: Literal["asset_scan"] = "asset_scan"
+    asset_id: str
+    implementation_id: str
+    columns: tuple[str, ...]
+
+
+class BucketWindow(_Step):
+    """Keep bucket rows whose date column falls in the trailing complete-day window."""
+
+    kind: Literal["bucket_window"] = "bucket_window"
+    bucket_column: str
+    complete_calendar_days: int
+    timezone: str
+
+
+class RollupMeasure(BaseModel):
+    """One measure re-aggregated from a finer grain."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    aggregation: Aggregation
+
+
+class Rollup(_Step):
+    """Re-aggregate already-aggregated rows up to the entity key."""
+
+    kind: Literal["rollup"] = "rollup"
+    entity_key: str
+    measures: tuple[RollupMeasure, ...]
+
+
 class MeasurePlan(BaseModel):
     """One output measure: an approved expression and how to aggregate it."""
 
@@ -109,7 +144,15 @@ class PopulationJoin(_Step):
 
 
 Step = Annotated[
-    SourceScan | TimeAttribution | WindowStep | IdentityJoin | Aggregate | PopulationJoin,
+    SourceScan
+    | TimeAttribution
+    | WindowStep
+    | IdentityJoin
+    | Aggregate
+    | PopulationJoin
+    | AssetScan
+    | BucketWindow
+    | Rollup,
     Field(discriminator="kind"),
 ]
 
@@ -199,6 +242,12 @@ def step_output_columns(step: Step, inputs: tuple[str, ...]) -> tuple[str, ...]:
             return (*keys, *(m.name for m in step.measures))
         case PopulationJoin():
             return (step.entity_key, *step.carry, *step.zero_fill)
+        case AssetScan():
+            return step.columns
+        case BucketWindow():
+            return inputs
+        case Rollup():
+            return (step.entity_key, *(m.name for m in step.measures))
 
 
 def describe_plan(plan: Plan) -> str:
@@ -234,3 +283,13 @@ def _describe_step(step: Step) -> str:
             return f"aggregate by {step.entity_key}{bucket}: {measures}"
         case PopulationJoin():
             return f"left join {step.entity_source} so every {step.entity_key} appears"
+        case AssetScan():
+            return f"scan asset {step.asset_id} via {step.implementation_id}"
+        case BucketWindow():
+            return (
+                f"window {step.bucket_column} over trailing {step.complete_calendar_days} "
+                f"complete days in {step.timezone}"
+            )
+        case Rollup():
+            measures = ", ".join(f"{m.aggregation}({m.name})" for m in step.measures)
+            return f"roll up by {step.entity_key}: {measures}"

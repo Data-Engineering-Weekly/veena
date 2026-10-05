@@ -1,6 +1,7 @@
 """Generate the synthetic sources: customers, accounts, identity mappings, purchases.
 
-The generator plants two traps the engine must handle. Some accounts move from one customer
+Purchases come in baskets so daily aggregates compress the facts. The generator plants two
+traps the engine must handle. Some accounts move from one customer
 to another on a known date, so a join on account id alone counts purchases twice. Some
 purchases are refunded, so the approved amount definition must filter by status.
 """
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from veena.errors import ScenarioError
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
 
@@ -31,7 +33,8 @@ class ScenarioConfig(BaseModel):
     remapped_share: float = Field(default=0.10, ge=0.0, le=0.9)
     refunded_share: float = Field(default=0.05, ge=0.0, le=0.9)
     history_days: int = Field(default=120, ge=30)
-    purchases_per_active_customer: float = Field(default=12.0, gt=0.0)
+    baskets_per_active_customer: float = Field(default=10.0, gt=0.0)
+    items_per_basket: float = Field(default=6.0, ge=1.0)
     last_complete_day: date = date(2026, 9, 30)
 
 
@@ -158,17 +161,46 @@ def _populate(conn: duckdb.DuckDBPyConnection, rng: random.Random, config: Scena
         else:
             mappings.append((f"m{len(mappings):05d}", account_id, customer_id, created_at, None))
 
+    # Purchases arrive in baskets: a customer buys several items in one visit, so one
+    # customer-day holds several rows and a daily aggregate is much smaller than the facts.
     purchases: list[tuple[str, str, datetime, float, str]] = []
     span_seconds = int((end - start).total_seconds())
     for account_id, _ in accounts:
-        count = max(1, int(rng.expovariate(1.0 / config.purchases_per_active_customer)))
-        for _ in range(count):
-            at = start + timedelta(seconds=rng.randint(0, span_seconds - 1))
-            amount = round(rng.lognormvariate(3.5, 0.8), 2)
-            status = "refunded" if rng.random() < config.refunded_share else "settled"
-            purchases.append((f"p{len(purchases):06d}", account_id, at, amount, status))
+        baskets = max(1, int(rng.expovariate(1.0 / config.baskets_per_active_customer)))
+        for _ in range(baskets):
+            visit = start + timedelta(seconds=rng.randint(0, span_seconds - 1))
+            items = max(1, int(rng.expovariate(1.0 / config.items_per_basket)))
+            for item in range(items):
+                at = visit + timedelta(seconds=item * rng.randint(5, 90))
+                amount = round(rng.lognormvariate(3.0, 0.8), 2)
+                status = "refunded" if rng.random() < config.refunded_share else "settled"
+                purchases.append((f"p{len(purchases):06d}", account_id, at, amount, status))
 
-    conn.executemany("INSERT INTO customers VALUES (?, ?, ?)", customers)
-    conn.executemany("INSERT INTO accounts VALUES (?, ?)", accounts)
-    conn.executemany("INSERT INTO identity_mappings VALUES (?, ?, ?, ?, ?)", mappings)
-    conn.executemany("INSERT INTO purchases VALUES (?, ?, ?, ?, ?)", purchases)
+    _bulk_insert(conn, "customers", customers)
+    _bulk_insert(conn, "accounts", accounts)
+    _bulk_insert(conn, "identity_mappings", mappings)
+    _bulk_insert(conn, "purchases", purchases)
+
+
+def _bulk_insert(
+    conn: duckdb.DuckDBPyConnection,
+    table: str,
+    rows: Sequence[tuple[object, ...]],
+    batch: int = 2000,
+) -> None:
+    # Literal multi-row VALUES parse in milliseconds; binding thousands of parameters does not.
+    for start in range(0, len(rows), batch):
+        chunk = rows[start : start + batch]
+        values = ", ".join("(" + ", ".join(_literal(v) for v in row) + ")" for row in chunk)
+        conn.execute(f"INSERT INTO {table} VALUES {values}")
+
+
+def _literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, datetime):
+        return f"TIMESTAMPTZ '{value.astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S')}+00'"
+    if isinstance(value, int | float):
+        return repr(value)
+    text = str(value).replace("'", "''")
+    return f"'{text}'"

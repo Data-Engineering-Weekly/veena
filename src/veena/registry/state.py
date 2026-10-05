@@ -13,6 +13,7 @@ from veena.evidence import CheckResult, Grade
 from veena.registry.events import (
     AssetRequested,
     AssetRetired,
+    BackfillProgressed,
     CommitmentRegistered,
     CommitmentReleased,
     DecisionRecorded,
@@ -20,7 +21,10 @@ from veena.registry.events import (
     DeploymentRolledBack,
     ImplementationPlanned,
     ImplementationRefreshed,
+    InterfaceSwitched,
+    ProposalApproved,
     ProposalOpened,
+    ProposalRejected,
     QuestionOpened,
     SpecResolved,
     VerificationRecorded,
@@ -53,6 +57,9 @@ class Asset(BaseModel):
     commitments: tuple[str, ...] = ()
     implementations: tuple[str, ...] = ()
     source_progress: dict[str, datetime] = Field(default_factory=dict)
+    depends_on: tuple[str, ...] = Field(
+        default_factory=tuple, description="Assets the active implementation reads."
+    )
     history: tuple[int, ...] = Field(default_factory=tuple, description="seq of every event")
 
 
@@ -99,6 +106,15 @@ class Decision(BaseModel):
     seq: int
 
 
+class ProposalStatus(StrEnum):
+    """Where a proposal is."""
+
+    OPEN = "open"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ACTIVATED = "activated"
+
+
 class Proposal(BaseModel):
     """A graph change and what has happened to it so far."""
 
@@ -109,8 +125,18 @@ class Proposal(BaseModel):
     changes: tuple[str, ...]
     affected_assets: tuple[str, ...]
     assumed_revision: int
+    kind_of_change: str = "direct"
+    status: ProposalStatus = ProposalStatus.OPEN
+    reason: str = ""
+    alternatives: tuple[str, ...] = ()
+    cost_current_rows: int | None = None
+    cost_proposed_rows: int | None = None
+    evidence_required: tuple[str, ...] = ()
+    shared_asset: str | None = None
+    dependents: tuple[str, ...] = ()
     implementations: tuple[str, ...] = ()
     verifications: tuple[str, ...] = ()
+    switched: dict[str, str] = Field(default_factory=dict)
     deployment_id: str | None = None
     seq: int
 
@@ -141,8 +167,11 @@ class Deployment(BaseModel):
     verification_id: str
     assumed_revision: int
     activated: dict[str, str]
+    replaced: dict[str, str | None] = Field(default_factory=dict)
+    staged: bool = False
     rolled_back: bool = False
     rollback_reason: str = ""
+    effective_at: datetime
     seq: int
 
 
@@ -255,7 +284,55 @@ class RegistryState:
                     changes=payload.changes,
                     affected_assets=payload.affected_assets,
                     assumed_revision=payload.assumed_revision,
+                    kind_of_change=payload.kind_of_change,
+                    alternatives=payload.alternatives,
+                    cost_current_rows=payload.cost_current_rows,
+                    cost_proposed_rows=payload.cost_proposed_rows,
+                    evidence_required=payload.evidence_required,
+                    shared_asset=payload.shared_asset,
+                    dependents=payload.dependents,
                     seq=seq,
+                )
+            case ProposalApproved():
+                proposal = self._require(self.proposals, payload.proposal_id, "proposal", seq)
+                if proposal.status is not ProposalStatus.OPEN:
+                    msg = f"event {seq}: proposal {proposal.proposal_id} is {proposal.status}"
+                    raise RegistryError(msg)
+                self.proposals[proposal.proposal_id] = proposal.model_copy(
+                    update={"status": ProposalStatus.APPROVED, "reason": payload.reason}
+                )
+            case ProposalRejected():
+                proposal = self._require(self.proposals, payload.proposal_id, "proposal", seq)
+                if proposal.status is ProposalStatus.ACTIVATED:
+                    msg = f"event {seq}: proposal {proposal.proposal_id} is already activated"
+                    raise RegistryError(msg)
+                self.proposals[proposal.proposal_id] = proposal.model_copy(
+                    update={"status": ProposalStatus.REJECTED, "reason": payload.reason}
+                )
+            case BackfillProgressed():
+                self._require(
+                    self.implementations, payload.implementation_id, "implementation", seq
+                )
+            case InterfaceSwitched():
+                proposal = self._require(self.proposals, payload.proposal_id, "proposal", seq)
+                asset = self._asset(payload.asset_id, seq)
+                if payload.implementation_id not in asset.implementations:
+                    msg = (
+                        f"event {seq}: {payload.implementation_id} is not an implementation of "
+                        f"{payload.asset_id}"
+                    )
+                    raise RegistryError(msg)
+                self.proposals[proposal.proposal_id] = proposal.model_copy(
+                    update={
+                        "switched": {
+                            **proposal.switched,
+                            payload.asset_id: payload.implementation_id,
+                        }
+                    }
+                )
+                self.assets[asset.asset_id] = _touch(
+                    asset.model_copy(update={"active_implementation": payload.implementation_id}),
+                    seq,
                 )
             case ImplementationPlanned():
                 proposal = self._require(self.proposals, payload.proposal_id, "proposal", seq)
@@ -312,16 +389,25 @@ class RegistryState:
                         f"{verification.verification_id}, which did not pass"
                     )
                     raise RegistryError(msg)
+                if proposal.status is ProposalStatus.REJECTED:
+                    msg = f"event {seq}: proposal {proposal.proposal_id} was rejected"
+                    raise RegistryError(msg)
                 self.deployments[payload.deployment_id] = Deployment(
                     deployment_id=payload.deployment_id,
                     proposal_id=payload.proposal_id,
                     verification_id=payload.verification_id,
                     assumed_revision=payload.assumed_revision,
                     activated=dict(payload.activated),
+                    replaced=dict(payload.replaced),
+                    staged=payload.staged,
+                    effective_at=event.effective_at,
                     seq=seq,
                 )
                 self.proposals[proposal.proposal_id] = proposal.model_copy(
-                    update={"deployment_id": payload.deployment_id}
+                    update={
+                        "deployment_id": payload.deployment_id,
+                        "status": ProposalStatus.ACTIVATED,
+                    }
                 )
                 for asset_id, implementation in payload.activated.items():
                     asset = self._asset(asset_id, seq)
@@ -330,11 +416,17 @@ class RegistryState:
                             f"event {seq}: {implementation} is not an implementation of {asset_id}"
                         )
                         raise RegistryError(msg)
+                    reads = tuple(
+                        d.name
+                        for d in self.implementations[implementation].dependencies
+                        if d.kind == "asset"
+                    )
                     self.assets[asset_id] = _touch(
                         asset.model_copy(
                             update={
                                 "active_implementation": implementation,
                                 "status": AssetStatus.ACTIVE,
+                                "depends_on": reads,
                             }
                         ),
                         seq,
@@ -348,7 +440,24 @@ class RegistryState:
                 )
                 for asset_id in deployment.activated:
                     asset = self._asset(asset_id, seq)
-                    self.assets[asset_id] = _touch(asset, seq)
+                    restored = payload.restored.get(asset_id, deployment.replaced.get(asset_id))
+                    restored_reads: tuple[str, ...] = ()
+                    if restored is not None and restored in self.implementations:
+                        restored_reads = tuple(
+                            d.name
+                            for d in self.implementations[restored].dependencies
+                            if d.kind == "asset"
+                        )
+                    self.assets[asset_id] = _touch(
+                        asset.model_copy(
+                            update={
+                                "active_implementation": restored,
+                                "status": AssetStatus.ACTIVE if restored else AssetStatus.SPECIFIED,
+                                "depends_on": restored_reads,
+                            }
+                        ),
+                        seq,
+                    )
             case AssetRetired():
                 asset = self._asset(payload.asset_id, seq)
                 if asset.commitments:

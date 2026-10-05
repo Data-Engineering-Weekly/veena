@@ -29,6 +29,7 @@ from veena.spec import check, dump_spec, load_spec
 from veena.verification import verify
 
 if TYPE_CHECKING:
+    from veena.coordinator import ActivationOutcome
     from veena.evidence import CheckResult
     from veena.spec.model import AssetSpec
 
@@ -295,29 +296,34 @@ def asset_activate(
     semantic: SemanticPath = None,
     as_of: AsOf = None,
     repair_bound: Annotated[int, typer.Option(help="Verification attempts before escalating.")] = 2,
+    require_approval: Annotated[
+        bool, typer.Option(help="Make share proposals wait for `veena proposal approve`.")
+    ] = False,
+    min_benefit: Annotated[
+        int,
+        typer.Option(
+            help="Smallest saving in fact rows processed per refresh that justifies sharing."
+        ),
+    ] = 1,
+    max_reorganizations: Annotated[
+        int, typer.Option(help="Cap on share deployments per asset in the policy period.")
+    ] = 1,
 ) -> None:
-    """Propose, implement, verify, and deploy the asset on the scenario database."""
-    reg = _open_registry(registry)
+    """Find overlap, then propose, implement, verify, and deploy on the scenario database."""
     try:
-        model = load_semantic_model(_semantic_path(semantic))
-        backend = DuckDBBackend(duckdb.connect(str(scenario)))
-        outcome = Coordinator(reg, backend, model, repair_bound=repair_bound).activate(
-            asset_id, as_of=_as_of(as_of)
+        reg, coordinator = _coordinator(
+            registry,
+            scenario,
+            semantic,
+            repair_bound=repair_bound,
+            require_approval=require_approval,
+            min_benefit=min_benefit,
+            max_reorganizations=max_reorganizations,
         )
+        outcome = coordinator.activate(asset_id, as_of=_as_of(as_of))
     except VeenaError as exc:
         raise _fail(exc) from exc
-    if outcome.last_outcome is not None:
-        _print_checks(outcome.last_outcome.checks)
-    if outcome.activated:
-        typer.echo(
-            f"activated {asset_id} via {outcome.deployment_id} "
-            f"after {outcome.attempts} attempt(s); "
-            f"grade {outcome.last_outcome.grade if outcome.last_outcome else '-'}; "
-            f"registry at revision {reg.revision}"
-        )
-    else:
-        typer.echo(f"not activated; opened question {outcome.question_id}")
-        raise typer.Exit(code=3)
+    _report_activation(outcome, reg)
 
 
 @asset_app.command("verify")
@@ -354,6 +360,7 @@ def asset_show(asset_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -> None
         raise _fail(VeenaError(f"unknown asset {asset_id!r}"))
     typer.echo(
         f"asset {asset.asset_id}  status={asset.status}  impl={asset.active_implementation or '-'}"
+        + (f"  reads {', '.join(asset.depends_on)}" if asset.depends_on else "")
     )
     if asset.spec:
         s = asset.spec
@@ -377,14 +384,23 @@ def asset_show(asset_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -> None
     for d in sorted(state.deployments.values(), key=lambda d: d.seq):
         if asset_id in d.activated:
             status = "rolled back" if d.rolled_back else "active"
+            verified_by = next(
+                (
+                    v.verification_id
+                    for v in state.verifications.values()
+                    if v.proposal_id == d.proposal_id
+                    and v.implementation_id == d.activated[asset_id]
+                ),
+                d.verification_id,
+            )
             typer.echo(
                 f"deployment {d.deployment_id} ({status}): {d.activated[asset_id]} "
-                f"via {d.proposal_id}, verified by {d.verification_id}, "
+                f"via {d.proposal_id}, verified by {verified_by}, "
                 f"assumed revision {d.assumed_revision}"
             )
     for p in sorted(state.proposals.values(), key=lambda p: p.seq):
         if asset_id in p.affected_assets:
-            typer.echo(f"proposal {p.proposal_id}: {p.summary}")
+            typer.echo(f"proposal {p.proposal_id} ({p.kind_of_change}, {p.status}): {p.summary}")
             for impl_id in p.implementations:
                 impl = state.implementations[impl_id]
                 deps = ", ".join(f"{d.name}@{d.version}" for d in impl.dependencies)
@@ -415,3 +431,168 @@ def _print_checks(checks: tuple[CheckResult, ...]) -> None:
             typer.echo(
                 f"       {c.detail}" if not c.passed else f"       uncertainty: {c.uncertainty}"
             )
+
+
+proposal_app = typer.Typer(
+    no_args_is_help=True, help="List, inspect, approve, or reject proposals."
+)
+deployment_app = typer.Typer(no_args_is_help=True, help="Inspect and roll back deployments.")
+app.add_typer(proposal_app, name="proposal")
+app.add_typer(deployment_app, name="deployment")
+
+
+def _coordinator(
+    registry: Path,
+    scenario: Path,
+    semantic: Path | None,
+    *,
+    repair_bound: int = 2,
+    require_approval: bool = False,
+    min_benefit: int = 1,
+    max_reorganizations: int = 1,
+) -> tuple[Registry, Coordinator]:
+    from veena.policy import ReorganizationPolicy
+
+    reg = _open_registry(registry)
+    model = load_semantic_model(_semantic_path(semantic))
+    backend = DuckDBBackend(duckdb.connect(str(scenario)))
+    policy = ReorganizationPolicy(
+        require_approval=require_approval,
+        min_benefit_rows=min_benefit,
+        max_reorganizations_per_period=max_reorganizations,
+    )
+    return reg, Coordinator(reg, backend, model, repair_bound=repair_bound, policy=policy)
+
+
+def _report_activation(outcome: ActivationOutcome, reg: Registry) -> None:
+    for asset_id, result in outcome.outcomes.items():
+        typer.echo(f"verification of {asset_id}:")
+        _print_checks(result.checks)
+    if outcome.pending_approval:
+        typer.echo(
+            f"proposal {outcome.proposal_id} ({outcome.kind_of_change}) waits for approval; "
+            f"run `veena proposal show {outcome.proposal_id}`"
+        )
+        return
+    if outcome.activated:
+        last = outcome.last_outcome
+        typer.echo(
+            f"activated {outcome.asset_id} via {outcome.deployment_id} "
+            f"({outcome.kind_of_change}) after {outcome.attempts} attempt(s); "
+            f"grade {last.grade if last else '-'}; registry at revision {reg.revision}"
+        )
+        return
+    typer.echo(f"not activated; opened question {outcome.question_id}")
+    raise typer.Exit(code=3)
+
+
+@proposal_app.command("list")
+def proposal_list(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
+    """List proposals with kind, status, and affected assets."""
+    state = _open_registry(registry).state
+    for p in sorted(state.proposals.values(), key=lambda p: p.seq):
+        typer.echo(
+            f"{p.proposal_id:<34} {p.kind_of_change:<7} {p.status:<10} "
+            f"affects {', '.join(p.affected_assets)}"
+        )
+
+
+@proposal_app.command("show")
+def proposal_show(proposal_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -> None:
+    """Print one proposal: changes, costs, alternatives considered, evidence, status."""
+    state = _open_registry(registry).state
+    p = state.proposals.get(proposal_id)
+    if p is None:
+        raise _fail(VeenaError(f"unknown proposal {proposal_id!r}"))
+    typer.echo(f"proposal {p.proposal_id} ({p.kind_of_change}) status={p.status}")
+    typer.echo(f"  {p.summary}")
+    if p.reason:
+        typer.echo(f"  reason: {p.reason}")
+    for change in p.changes:
+        typer.echo(f"  change: {change}")
+    typer.echo(f"  affects: {', '.join(p.affected_assets)}; assumed revision {p.assumed_revision}")
+    if p.cost_current_rows is not None and p.cost_proposed_rows is not None:
+        typer.echo(
+            f"  cost: {p.cost_current_rows} fact rows processed per refresh now, "
+            f"{p.cost_proposed_rows} proposed, benefit {p.cost_current_rows - p.cost_proposed_rows}"
+        )
+    for e in p.evidence_required:
+        typer.echo(f"  evidence required: {e}")
+    for a in p.alternatives:
+        typer.echo(f"  considered: {a}")
+    for impl_id in p.implementations:
+        typer.echo(f"  implementation {impl_id}")
+    for vid in p.verifications:
+        v = state.verifications[vid]
+        typer.echo(
+            f"  verification {vid} of {v.implementation_id}: "
+            f"{'passed' if v.passed else 'failed'}, grade {v.grade}"
+        )
+    if p.deployment_id:
+        typer.echo(f"  deployment {p.deployment_id}")
+
+
+@proposal_app.command("approve")
+def proposal_approve(
+    proposal_id: str,
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+    as_of: AsOf = None,
+    reason: str = "",
+) -> None:
+    """Approve an open proposal and run it to deployment."""
+    try:
+        reg, coordinator = _coordinator(registry, scenario, semantic)
+        outcome = coordinator.approve(proposal_id, as_of=_as_of(as_of), reason=reason)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    _report_activation(outcome, reg)
+
+
+@proposal_app.command("reject")
+def proposal_reject(
+    proposal_id: str,
+    reason: Annotated[str, typer.Option(help="Why the proposal will not proceed.")],
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+) -> None:
+    """Reject an open proposal."""
+    try:
+        _, coordinator = _coordinator(registry, scenario, semantic)
+        coordinator.reject(proposal_id, reason=reason)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(f"rejected {proposal_id}")
+
+
+@deployment_app.command("list")
+def deployment_list(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
+    """List deployments and what each switched."""
+    state = _open_registry(registry).state
+    for d in sorted(state.deployments.values(), key=lambda d: d.seq):
+        status = "rolled back" if d.rolled_back else "active"
+        switched = ", ".join(f"{a} -> {i}" for a, i in d.activated.items())
+        typer.echo(
+            f"{d.deployment_id:<34} {status:<11} {'staged' if d.staged else 'atomic':<6} {switched}"
+        )
+
+
+@deployment_app.command("rollback")
+def deployment_rollback(
+    deployment_id: str,
+    reason: Annotated[str, typer.Option(help="Why the deployment is being reverted.")],
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+    as_of: AsOf = None,
+) -> None:
+    """Repoint every interface the deployment switched back to what it replaced."""
+    try:
+        reg, coordinator = _coordinator(registry, scenario, semantic)
+        coordinator.rollback(deployment_id, reason=reason, as_of=_as_of(as_of))
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    d = reg.state.deployments[deployment_id]
+    typer.echo(f"rolled back {deployment_id}; restored {d.replaced}")

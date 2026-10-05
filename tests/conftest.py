@@ -82,11 +82,24 @@ def semantic():
     return load_semantic_model(SEMANTIC)
 
 
-@pytest.fixture
-def scenario_conn():
+@pytest.fixture(scope="session")
+def scenario_file(tmp_path_factory):
     from veena.scenario import ScenarioConfig, build_scenario
 
-    conn = build_scenario(None, ScenarioConfig())
+    path = tmp_path_factory.mktemp("scenario") / "default.duckdb"
+    build_scenario(path, ScenarioConfig()).close()
+    return path
+
+
+@pytest.fixture
+def scenario_conn(scenario_file, tmp_path):
+    import shutil
+
+    import duckdb
+
+    copy = tmp_path / "scenario.duckdb"
+    shutil.copy(scenario_file, copy)
+    conn = duckdb.connect(str(copy))
     yield conn
     conn.close()
 

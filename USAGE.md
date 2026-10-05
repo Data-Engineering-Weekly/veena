@@ -318,3 +318,103 @@ The scenario plants the article's bug: some accounts moved between customers ins
 | Code | Meaning |
 |---|---|
 | 3 | `asset activate` escalated with a question instead of activating, or `asset verify` found a failing check. |
+
+## Walkthrough, continued: a second request reshapes the graph
+
+Register the support agent's 90-day request the same way, then activate it.
+
+```bash
+uv run veena asset request src/veena/scenario/specs/customer_spend_90d.yaml \
+  --consumer agent:support --text "same metric over 90 days"
+uv run veena asset activate customer_spend_90d --as-of 2026-10-01T00:00:00+00:00
+```
+
+The engine prints three verifications, one per affected asset, and ends with:
+
+```
+activated customer_spend_90d via customer_spend_daily_d1 (share) after 1 attempt(s); grade reconciliation; registry at revision 27
+```
+
+The word `share` is the architectural decision. The engine did not build a second direct aggregation. It compared the two specifications, found they agree on everything but the window, derived a customer-by-day asset with 90 days of history, built it, rewired the 30-day asset to read from it, built the 90-day asset on it, verified all three, and switched all three views in one transaction. Look at what it decided and why.
+
+```bash
+uv run veena proposal show customer_spend_daily_p1
+```
+
+```
+proposal customer_spend_daily_p1 (share) status=activated
+  create customer_spend_daily@1 and serve customer_spend_30d@1 and customer_spend_90d@1 from it
+  reason: benefit 881 rows >= minimum 1 under policy:reorganization@1
+  change: create customer_spend_daily@1 with 90 days of history
+  change: rewire customer_spend_30d@1 to read customer_spend_daily
+  change: create customer_spend_90d@1 reading customer_spend_daily
+  affects: customer_spend_daily, customer_spend_30d, customer_spend_90d; assumed revision 12
+  cost: 9550 fact rows processed per refresh now, 8669 proposed, benefit 881
+  evidence required: verification of customer_spend_daily
+  evidence required: verification of customer_spend_30d
+  evidence required: verification of customer_spend_90d
+  evidence required: equivalence of customer_spend_30d at matching inputs
+  considered: customer_spend_30d@1 -> customer_spend_90d@1: cannot because window differs: provider covers 30 complete days, consumer needs 90
+  considered: customer_spend_90d@1 -> customer_spend_30d@1: cannot because window differs: provider covers 90 complete days, consumer needs 30
+  ...
+```
+
+Three things to read here. The cost is measured, not estimated: the engine built the daily candidate, counted the fact rows each plan processes per refresh, and compared. The policy that allowed it is named. And the alternatives it considered first are recorded, so a reviewer can see that reusing the 30-day asset was checked and refused for a stated reason.
+
+The sales application never changed anything. Its view still answers:
+
+```bash
+uv run veena asset show customer_spend_30d
+```
+
+```
+asset customer_spend_30d  status=active  impl=customer_spend_30d__v1__i2  reads customer_spend_daily
+...
+deployment customer_spend_30d_d1 (active): customer_spend_30d__v1__i1 via customer_spend_30d_p1, verified by customer_spend_30d_p1_v1, assumed revision 3
+deployment customer_spend_daily_d1 (active): customer_spend_30d__v1__i2 via customer_spend_daily_p1, verified by customer_spend_daily_p1_v2, assumed revision 12
+...
+  implementation customer_spend_30d__v1__i2 on duckdb; reads customer_spend_daily@customer_spend_daily__v1__i1, customers@54430b48dacb
+  verification customer_spend_daily_p1_v2: passed, grade reconciliation, 5/5 checks
+```
+
+The second implementation reads the daily asset at a named implementation, so the version it assumed is on record. Its verification has five checks: the four generated from the spec, plus an equivalence check against the previous implementation at the same inputs, graded `test` because two implementations can agree by sharing a mistake.
+
+### Policy knobs
+
+Sharing is gated by a policy, not by the engine's enthusiasm.
+
+```bash
+uv run veena asset activate customer_spend_90d --min-benefit 1000000     # too little benefit: builds direct
+uv run veena asset activate customer_spend_90d --max-reorganizations 0   # cap reached: builds direct
+uv run veena asset activate customer_spend_90d --require-approval        # waits for a person
+```
+
+In the first two cases the engine records the share proposal as rejected with the reason and builds the 90-day asset directly. In the third it opens the proposal and stops. Inspect and decide:
+
+```bash
+uv run veena proposal list
+uv run veena proposal approve customer_spend_daily_p1 --reason "owner agreed"
+uv run veena proposal reject customer_spend_daily_p1 --reason "not this quarter"
+```
+
+### Undoing a deployment
+
+```bash
+uv run veena deployment list
+uv run veena deployment rollback customer_spend_daily_d1 --reason "support saw wrong totals"
+```
+
+Rollback repoints every view the deployment switched to what it replaced. The 30-day view goes back to its first implementation. The daily and 90-day views are dropped because nothing preceded them. The event records the consumers who may have read the rolled-back data and over what interval, because a rollback fixes future reads and cannot undo past ones.
+
+### When the shared candidate is wrong
+
+`tests/test_coordinator_share.py::test_naive_shared_candidate_is_caught_repaired_and_then_activated` forces the article's bug into the daily candidate on the first attempt. The daily asset's own reconciliation fails, and so does the 30-day asset's, whose failure names `customer_spend_daily` as the cause. Nothing is published. On the second attempt the planner produces the correct join, all three verifications pass, and one deployment switches the three views. The registry keeps both attempts.
+
+### When history is missing
+
+Build a scenario with only 60 days of history and request 90 days. The engine opens a question instead of a proposal:
+
+```
+customer_spend_90d@1 needs 90 days of purchases history from 2026-07-03, but the oldest record is 2026-08-02... How should the engine proceed?
+  alternatives: accept_shorter_history, load_more_history, abandon_request
+```

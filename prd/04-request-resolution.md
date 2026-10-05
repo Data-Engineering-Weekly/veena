@@ -1,6 +1,6 @@
 # Phase 4: Request resolution
 
-Status: Planned. Depends on phase 2. Independent of phase 3.
+Status: Next. Depends on phase 2, which is done.
 
 ## Goal
 

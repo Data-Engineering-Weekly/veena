@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, ConfigDict, model_validator
 
 _REF = re.compile(r"^(?P<kind>[a-z]+):(?P<name>[a-z][a-z0-9_]*)(?:@(?P<version>\d+))?$")
+_ORIGIN_KINDS = frozenset({"message", "decision", "policy", "conversation", "proposal", "asset"})
 
 
 class Ref(BaseModel):
@@ -61,7 +62,10 @@ class PolicyRef(Ref):
 
 
 class OriginRef(Ref):
-    """Where a requirement came from: a message, decision, policy, or conversation."""
+    """Where a requirement came from: a message, decision, policy, conversation, proposal, or asset.
+
+    Unlike other refs, the kind varies, so it is stored on the instance as `origin_kind`.
+    """
 
     kind: ClassVar[str] = ""
     versioned: ClassVar[bool] = False
@@ -74,10 +78,9 @@ class OriginRef(Ref):
         if not isinstance(data, str):
             return data
         match = _REF.match(data)
-        if match is None or match["kind"] not in {"message", "decision", "policy", "conversation"}:
-            msg = (
-                f"malformed origin ref {data!r}; "
-                "expected message:, decision:, policy:, or conversation:"
+        if match is None or match["kind"] not in _ORIGIN_KINDS:
+            msg = f"malformed origin ref {data!r}; expected one of " + ", ".join(
+                sorted(k + ":" for k in _ORIGIN_KINDS)
             )
             raise ValueError(msg)
         version = match["version"]

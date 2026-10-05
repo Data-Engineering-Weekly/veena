@@ -11,7 +11,7 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```
 
-All three checks must pass before a change is done. Current state: 88 tests, 0 lint findings, 0 type errors across 55 files.
+All three checks must pass before a change is done. Current state: 104 tests, 0 lint findings, 0 type errors across 59 files.
 
 Everything runs through `uv`. The `python3` on this machine is not used, and `uv run python -c "..."` replaces any inline snippet.
 
@@ -35,7 +35,9 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 * `veena.planner` is the compiler. `plan.py` is the backend-neutral plan: six step types, `Dependency`, `RefreshRule`, `Implementation`. `compile.py` turns a spec plus the semantic model into a plan and raises `PlanError` for anything it cannot express. No model call appears here, and a test enforces it.
 * `veena.backends` renders and runs. `protocol.py` is what every backend does: render, materialize, publish, execute. `duckdb.py` is the first backend. It renders one CTE per step and, when told a step is unsupported, hands that step to a `Drafter` and validates the draft by parse, lineage against declared tables, and output columns.
 * `veena.verification` builds checks from the spec and semantic model and runs them against a relation name. It does not import the planner or the backends, and a test enforces it. `veena.evidence` holds `Grade` and `CheckResult` so the registry can store results without importing verification.
-* `veena.coordinator` runs the loop for one asset: `propose`, `implement`, `verify`, `deploy`, or `activate` for all four with re-planning up to the repair bound. `deploy` refuses when the asset's commitments changed since the proposal opened.
+* `veena.overlap` runs subsumption between a new spec and every active spec in both directions, and derives a shared daily spec from two windowed specs that agree on entity, identity policy, access policy, timezone, and re-aggregable measures.
+* `veena.policy` holds `ReorganizationPolicy`: minimum measured benefit, a cap on reorganizations per asset per period, and whether a person must approve.
+* `veena.coordinator` runs the loop: `propose` decides between reading from a provider, creating a shared intermediate, or building direct, and records what it considered; `implement`, `verify`, and `deploy` act on every affected asset, shared asset first. `activate` runs all of it with re-planning up to the repair bound. `deploy` refuses when any affected asset's commitments changed since the proposal opened, and switches every interface in one transaction when the backend can, or one at a time with an `InterfaceSwitched` event each when it cannot. `rollback` repoints interfaces to what the deployment replaced. `approve`, `reject`, and `resume` manage proposals that wait for a person.
 * `veena.models` holds the `Classifier` and `Drafter` protocols with scripted adapters. Phase 2 uses only `Drafter`, and only for the unsupported-step path.
 * `veena.registry` is the event log and its projections. Two event kinds were added in phase 2: `ImplementationPlanned` and `ImplementationRefreshed`. `VerificationRecorded` now carries structured `CheckResult`s and source progress.
 * `veena.scenario` builds the synthetic workspace and holds the reference SQL that tests compare against.
@@ -57,6 +59,10 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 **The plan is backend-neutral.** Six step types, no SQL, no engine names. A backend renders them. A test asserts the serialized plan contains no backend words. This is the guard against phase 5 becoming a rewrite.
 
 **The planner is a compiler, not a model.** Same spec and semantic model give byte-identical plans. The only place a model may write SQL is a step the backend declares it cannot render, and that draft is parsed, lineage-checked against declared tables, and column-checked before use.
+
+**Sharing is a measured, gated decision.** The engine builds the shared candidate once to measure fact rows processed per refresh for the current and proposed graphs, then a policy decides. Below the minimum benefit, or over the reorganization cap, the proposal is recorded as rejected with the reason and the engine builds directly. Nothing about the decision comes from a model.
+
+**Consumers read a view; the engine moves the view.** Each implementation is a table named by implementation id. Each asset is a view named by asset id. Rewiring the 30-day asset means building a new table from the daily asset and repointing the view inside the same transaction that publishes the daily and 90-day views.
 
 **Deploy is guarded twice.** The coordinator compares the asset's commitments to the set it saw when the proposal opened and raises `RevisionConflictError` if they differ. The store then checks the exact revision on the append. The first guard explains why; the second catches any writer.
 
@@ -108,8 +114,8 @@ The full requirements for each phase, with ids and acceptance tests, live in [pr
 
 1. **Done.** Registry, spec IR, semantic model, DuckDB scenario, CLI.
 2. **Done.** Deterministic planner, DuckDB backend, independent verification, coordinator. The planner produces the point-in-time join; verification catches the naive one and the coordinator escalates with a question.
-3. **Next.** Overlap proposals: derive the shared daily asset from two windowed specs, verify all three, activate atomically, rewire the 30-day asset behind its view.
-4. LLM request resolution: natural language to spec, with open questions recorded as `QuestionOpened` and answers as `DecisionRecorded`.
+3. **Done.** Overlap proposals: the shared daily asset is derived from two windowed specs, all three are verified, activation is atomic, the 30-day asset is rewired behind its view, and rollback restores it.
+4. **Next.** Request resolution: natural language to spec, with open questions recorded as `QuestionOpened` and answers as `DecisionRecorded`.
 5. Warehouse backends (Snowflake or BigQuery first), the operator view ordered by unmet commitments, and the brakes: freeze, pin, replay.
 
 Open questions that would change the design, and what settles each:

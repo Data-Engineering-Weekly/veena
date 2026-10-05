@@ -39,11 +39,22 @@ Use one name for each concept everywhere: planner, executor, registry, CLI, docs
 ```
 src/veena/
   cli.py          Typer app. The only module that prints to the terminal.
+  refs.py         Versioned reference types: semantic, policy, origin.
   spec/           The specification IR and subsumption rules.
-  semantic/       The semantic model: entities, sources, calculations, time rules.
+  semantic/       The semantic model: entities, sources, calculations, time rules, identity policies.
+  planner/        Plan model and the deterministic compiler from spec (or spec plus provider) to plan.
+  backends/       Backend protocol and the DuckDB backend: render, materialize, publish, measure.
+  verification/   Checks generated from spec and semantic model. Never imports the planner.
+  coordinator.py  Propose (direct, from provider, or share), implement, verify, deploy, rollback.
+  overlap.py      Overlap detection and derivation of a shared intermediate, from specs only.
+  policy.py       Workspace policies the engine reads before it acts.
+  models/         Classifier and Drafter protocols with scripted adapters.
+  evidence.py     Grade and CheckResult, shared by verification and the registry.
+  calendar.py     Complete-day window arithmetic in a named timezone.
   registry/       Event-sourced registry: events, store, projections.
   scenario/       Synthetic DuckDB workspace that replays the article's story.
 tests/            Mirrors src/veena. One test module per source module.
+prd/              One requirements document per phase, with ids and acceptance tests.
 ```
 
 ## Commands

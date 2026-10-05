@@ -1,6 +1,6 @@
 # Phase 3: Overlap and reorganization
 
-Status: Next. Depends on phase 2, which is done.
+Status: Done, Oct 5 2026. Four items are partial and noted under Evidence.
 
 ## Goal
 
@@ -18,7 +18,7 @@ Then the harder part. A candidate daily asset has the naive join. The daily outp
 
 * **R3.1** On every new request, the engine runs subsumption between the new spec and every active spec, in both directions.
   Acceptance: the 90-day request yields `cannot` against the 30-day asset with the window reason, and the result is recorded on the proposal as considered alternatives.
-* **R3.2** When no active asset serves the new spec, the planner derives candidate shared intermediates from pairs of specs that agree on population entity, identity policy, access policy, timezone, and reaggregable measures. The derived spec takes the finest common grain and enough history for the longest window.
+* **R3.2** When no active asset serves the new spec, the engine derives candidate shared intermediates from pairs of specs that agree on population entity, identity policy, access policy, timezone, and reaggregable measures. The derived spec takes a daily grain and exactly enough history for the longer window.
   Acceptance: from the bundled 30-day and 90-day specs the planner derives a spec equal to `customer_spend_daily.yaml` except for provenance.
 * **R3.3** The derived spec records its provenance: the proposal that created it and the two consumer specs it serves.
   Acceptance: provenance entries point to `proposal:<id>` and both asset refs.
@@ -27,7 +27,7 @@ Then the harder part. A candidate daily asset has the naive join. The daily outp
 
 ### Deciding whether to reorganize
 
-* **R3.5** A proposal carries an expected benefit and an expected cost: rows scanned per refresh for the current graph and the proposed graph, measured on the backend, not estimated by a model.
+* **R3.5** A proposal carries an expected benefit and an expected cost: fact rows processed per refresh for the current graph and the proposed graph, measured on the backend, not estimated by a model. A source-fed plan processes the facts that pass its window; a provider-fed plan processes the pre-aggregated rows that pass its bucket window.
   Acceptance: the proposal payload has both numbers for the daily extraction on the default scenario.
 * **R3.6** The engine requires a minimum expected benefit before reorganizing and caps reorganizations per asset per period. Both are workspace policies.
   Acceptance: with the minimum set above the measured benefit, the engine builds the 90-day asset directly and records the rejected sharing proposal with the reason. With the cap at zero, same result.
@@ -70,9 +70,28 @@ Then the harder part. A candidate daily asset has the naive join. The daily outp
 * **R3.19** `veena asset request` triggers overlap detection and either builds directly or proposes. `veena proposal list|show|approve|reject` manages proposals when policy requires a person. `veena asset show` prints the dependency trail after rewiring.
   Acceptance: the USAGE walkthrough shows the 90-day request producing a proposal, its approval, and the resulting three assets.
 
+## Evidence
+
+* 104 tests pass, 16 of them new in this phase. `ruff check`, `ruff format --check`, and `mypy --strict` are clean across 59 files.
+* The CLI walkthrough in USAGE.md ran the 30-day request, then the 90-day request, on the default scenario on Oct 5 2026. The second activation was a `share` proposal with a measured benefit of 881 fact rows per refresh. Three assets ended active, both windowed views match the approved definition row for row, and the 30-day asset reads the daily asset.
+* R3.2: the derived spec equals the bundled `customer_spend_daily.yaml` except for provenance. `tests/test_overlap.py`.
+* R3.6: with the minimum set above the measured benefit, and separately with the cap at zero, the engine builds directly and records the rejected proposal with the reason. `tests/test_coordinator_share.py`.
+* R3.8: a scenario with 60 days of history makes the 90-day request open a question naming the missing history.
+* R3.13 and R3.14: a planner that produces the naive join on its first attempt yields three failed verifications, the 30-day failure cites `customer_spend_daily`, then three passing verifications and one deployment.
+* R3.16: a commitment registered between verify and deploy raises `RevisionConflictError`; the next activation opens a second proposal and activates.
+* R3.17: a backend that reports non-atomic publishing produces one `InterfaceSwitched` event per interface and a deployment marked staged.
+* R3.18: rollback repoints the 30-day view to its previous implementation, drops the views that had no predecessor, and records both consumers and the interval.
+
+Partial:
+
+* R3.9 records one `BackfillProgressed` event per shared implementation with the source position reached. There is no incremental backfill; the materialization is one statement on DuckDB.
+* R3.10 compiles the rewired plan from a provider for the window and population-join operations only. A consumer needing a rollup across grain keys or a filter still gets `PlanError`.
+* R3.12 adds the equivalence check to the existing asset's verification and records it graded `test`. The overall grade still comes from the reconciliation, as specified. The check compares the two implementations at the same `as_of`, which is the same input version on this backend; a real backend will need the source position pinned.
+* Cost is a count of fact rows processed, not currency. Phase 5 measures bytes and credits.
+
 ## Out of scope
 
-Natural language. Non-DuckDB backends. Cost in currency; cost is rows scanned until phase 5 has a real backend. Retirement (phase 6).
+Natural language. Non-DuckDB backends. Cost in currency. Retirement (phase 6).
 
 ## Risks and what settles them
 

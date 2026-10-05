@@ -6,13 +6,18 @@ from typing import TYPE_CHECKING
 
 from veena.errors import PlanError, SemanticRefError
 from veena.planner.plan import (
+    BUCKET_COLUMN,
     Aggregate,
+    AssetScan,
+    BucketWindow,
     Dependency,
     IdentityJoin,
     MeasurePlan,
     Plan,
     PopulationJoin,
     RefreshRule,
+    Rollup,
+    RollupMeasure,
     SourceScan,
     Step,
     TimeAttribution,
@@ -20,12 +25,19 @@ from veena.planner.plan import (
 )
 from veena.refs import SemanticRef
 from veena.spec.model import Aggregation, TimeBucket
+from veena.spec.subsumption import Operation, Verdict, check
 
 if TYPE_CHECKING:
     from veena.semantic.model import SemanticModel
     from veena.spec.model import AssetSpec
 
 ZERO_FILL = {Aggregation.SUM, Aggregation.COUNT}
+_ROLLUP = {
+    Aggregation.SUM: Aggregation.SUM,
+    Aggregation.COUNT: Aggregation.SUM,
+    Aggregation.MIN: Aggregation.MIN,
+    Aggregation.MAX: Aggregation.MAX,
+}
 
 
 def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
@@ -159,22 +171,113 @@ def compile_plan(spec: AssetSpec, semantic: SemanticModel) -> Plan:
     )
 
 
+def compile_from_provider(
+    spec: AssetSpec,
+    provider: AssetSpec,
+    provider_implementation: str,
+    semantic: SemanticModel,
+) -> Plan:
+    """Build the consumer's plan on top of a provider asset that subsumption says can serve it.
+
+    Args:
+        spec: The consumer specification.
+        provider: The provider's specification.
+        provider_implementation: Implementation id the plan reads; recorded as the assumed version.
+        semantic: The approved meaning, used to resolve the entity key and source.
+
+    Returns:
+        A plan that scans the provider, windows its buckets, rolls up, and joins the population.
+
+    Raises:
+        PlanError: Subsumption says the provider cannot serve, or needs an operation the
+            compiler does not support yet.
+    """
+    result = check(provider, spec)
+    if result.verdict is Verdict.CANNOT:
+        msg = f"{provider.ref} cannot serve {spec.ref}: " + "; ".join(result.reasons)
+        raise PlanError(msg)
+    unsupported = set(result.operations) - {Operation.WINDOW, Operation.POPULATION_JOIN}
+    if unsupported:
+        msg = f"{spec.ref} from {provider.ref} needs {sorted(unsupported)}, not supported yet"
+        raise PlanError(msg)
+    if provider.grain.time_bucket not in BUCKET_COLUMN:
+        msg = f"{provider.ref} has no time bucket to window on"
+        raise PlanError(msg)
+    if spec.window.complete_calendar_days is None:
+        msg = f"{spec.ref} is not a windowed spec"
+        raise PlanError(msg)
+    try:
+        entity = semantic.entity(spec.population.entity)
+        entity_source = semantic.source(entity.source)
+    except SemanticRefError as exc:
+        msg = f"{spec.ref}: {exc}"
+        raise PlanError(msg) from exc
+
+    by_key = {(m.calculation, m.aggregation): m for m in provider.measures}
+    rollups: list[RollupMeasure] = []
+    for measure in spec.measures:
+        source_measure = by_key[(measure.calculation, measure.aggregation)]
+        rollups.append(
+            RollupMeasure(name=source_measure.name, aggregation=_ROLLUP[measure.aggregation])
+        )
+    bucket = BUCKET_COLUMN[provider.grain.time_bucket]
+    columns = (entity.key, bucket, *(m.name for m in provider.measures))
+    steps: list[Step] = [
+        AssetScan(
+            asset_id=provider.asset_id, implementation_id=provider_implementation, columns=columns
+        ),
+        BucketWindow(
+            bucket_column=bucket,
+            complete_calendar_days=spec.window.complete_calendar_days,
+            timezone=spec.window.timezone,
+        ),
+        Rollup(entity_key=entity.key, measures=tuple(rollups)),
+    ]
+    if spec.population.include_inactive:
+        steps.append(
+            PopulationJoin(
+                entity_source=entity_source.name,
+                entity_table=entity_source.table,
+                entity_key=entity.key,
+                zero_fill=tuple(m.name for m in rollups),
+            )
+        )
+    return Plan(
+        asset_id=spec.asset_id,
+        spec_version=spec.spec_version,
+        semantic_fingerprint=semantic.fingerprint(),
+        steps=tuple(steps),
+    )
+
+
 def dependencies(plan: Plan) -> tuple[Dependency, ...]:
-    """Every source a plan reads, with the semantic fingerprint it assumed."""
-    names: list[str] = []
+    """Every source and asset a plan reads, with the version it assumed."""
+    deps: list[Dependency] = []
     for step in plan.steps:
         match step:
             case SourceScan():
-                names.append(step.source)
+                deps.append(
+                    Dependency(name=step.source, kind="source", version=plan.semantic_fingerprint)
+                )
+            case AssetScan():
+                deps.append(
+                    Dependency(name=step.asset_id, kind="asset", version=step.implementation_id)
+                )
             case IdentityJoin():
-                names.append(step.mapping_source)
+                deps.append(
+                    Dependency(
+                        name=step.mapping_source, kind="source", version=plan.semantic_fingerprint
+                    )
+                )
             case PopulationJoin():
-                names.append(step.entity_source)
+                deps.append(
+                    Dependency(
+                        name=step.entity_source, kind="source", version=plan.semantic_fingerprint
+                    )
+                )
             case _:
                 pass
-    return tuple(
-        Dependency(name=n, kind="source", version=plan.semantic_fingerprint) for n in names
-    )
+    return tuple(deps)
 
 
 def refresh_rule(spec: AssetSpec) -> RefreshRule:

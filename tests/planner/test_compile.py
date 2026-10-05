@@ -39,7 +39,7 @@ def test_thirty_day_plan_has_six_steps_in_order(semantic):
 def test_daily_plan_buckets_by_day_and_skips_population_join(semantic):
     plan = compile_plan(bundled_spec("customer_spend_daily"), semantic)
     assert plan.output_columns == ("customer_id", "day", "spend_usd")
-    assert plan.step(WindowStep).history_days == 120
+    assert plan.step(WindowStep).history_days == 90
     assert all(not isinstance(s, PopulationJoin) for s in plan.steps)
 
 

@@ -134,7 +134,7 @@ def test_asset_activate_verify_and_show(spec_dir, tmp_path):
     result = runner.invoke(app, ["asset", "activate", "customer_spend_30d", *common])
     assert result.exit_code == 0, result.output
     assert "ok   reconcile_spend_usd" in result.output
-    assert "activated customer_spend_30d via customer_spend_30d:d1" in result.output
+    assert "activated customer_spend_30d via customer_spend_30d_d1" in result.output
     assert "grade reconciliation" in result.output
 
     listed = runner.invoke(app, ["registry", "assets", "--registry", str(registry)])
@@ -151,9 +151,9 @@ def test_asset_activate_verify_and_show(spec_dir, tmp_path):
         "asset customer_spend_30d  status=active",
         "spec customer_spend_30d@1",
         "commitment ",
-        "deployment customer_spend_30d:d1 (active)",
-        "proposal customer_spend_30d:p1",
-        "  verification customer_spend_30d:p1:v1: passed",
+        "deployment customer_spend_30d_d1 (active)",
+        "proposal customer_spend_30d_p1",
+        "  verification customer_spend_30d_p1_v1: passed",
     ):
         assert line in shown.output, line
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, timedelta
 from typing import TYPE_CHECKING
 
 import duckdb
@@ -10,15 +10,18 @@ import sqlglot
 from sqlglot import exp
 
 from veena.backends.protocol import DraftStepRequest, SourceProgress
-from veena.calendar import sql_timestamptz, window_bounds
+from veena.calendar import last_complete_day, sql_timestamptz, window_bounds
 from veena.errors import BackendError, PlanError
 from veena.planner.plan import (
     BUCKET_COLUMN,
     EVENT_AT,
     Aggregate,
+    AssetScan,
+    BucketWindow,
     IdentityJoin,
     Plan,
     PopulationJoin,
+    Rollup,
     SourceScan,
     Step,
     TimeAttribution,
@@ -109,6 +112,55 @@ class DuckDBBackend:
             msg = f"publish {asset_id} -> {implementation_id}: {exc}"
             raise BackendError(msg) from exc
 
+    def unpublish(self, asset_id: str) -> None:
+        """Drop the asset's view if it exists."""
+        try:
+            self._conn.execute(f"DROP VIEW IF EXISTS {asset_id}")
+        except duckdb.Error as exc:
+            msg = f"unpublish {asset_id}: {exc}"
+            raise BackendError(msg) from exc
+
+    @property
+    def atomic_publish(self) -> bool:
+        """DuckDB runs DDL inside transactions, so every view switches together."""
+        return True
+
+    def publish_many(self, switches: dict[str, str]) -> None:
+        """Repoint every view in one transaction."""
+        self._conn.execute("BEGIN")
+        try:
+            for asset_id, implementation_id in switches.items():
+                self._conn.execute(
+                    f"CREATE OR REPLACE VIEW {asset_id} AS SELECT * FROM {implementation_id}"
+                )
+            self._conn.execute("COMMIT")
+        except duckdb.Error as exc:
+            self._conn.execute("ROLLBACK")
+            msg = f"publish_many {switches}: {exc}"
+            raise BackendError(msg) from exc
+
+    def measure_rows_processed(self, plan: Plan, *, as_of: datetime) -> int:
+        """Count the rows leaving the plan's window step by running the plan up to it."""
+        cut = next(
+            (i for i, s in enumerate(plan.steps) if isinstance(s, WindowStep | BucketWindow)),
+            len(plan.steps) - 1,
+        )
+        prefix = plan.model_copy(update={"steps": plan.steps[: cut + 1]})
+        sql, _ = self.render(prefix, as_of=as_of)
+        row = self._conn.execute(f"SELECT count(*) FROM ({sql})").fetchone()
+        return int(row[0]) if row else 0
+
+    def source_bounds(self, table: str, timestamp_column: str) -> tuple[datetime, datetime] | None:
+        """Oldest and newest timestamps in a source, in UTC."""
+        row = self._conn.execute(
+            f"SELECT min({timestamp_column}), max({timestamp_column}) FROM {table}"
+        ).fetchone()
+        if row is None or row[0] is None or row[1] is None:
+            return None
+        oldest: datetime = row[0]
+        newest: datetime = row[1]
+        return oldest.astimezone(UTC), newest.astimezone(UTC)
+
     def execute(self, sql: str) -> Sequence[tuple[object, ...]]:
         """Run a query and return all rows."""
         try:
@@ -118,8 +170,11 @@ class DuckDBBackend:
             raise BackendError(msg) from exc
 
     def _progress(self, plan: Plan) -> dict[str, datetime]:
-        scan = plan.step(SourceScan)
-        attribution = plan.step(TimeAttribution)
+        try:
+            scan = plan.step(SourceScan)
+            attribution = plan.step(TimeAttribution)
+        except KeyError:
+            return {}
         row = self._conn.execute(
             f"SELECT max({attribution.timestamp_column}) FROM {scan.table}"
         ).fetchone()
@@ -169,6 +224,24 @@ class DuckDBBackend:
                 return (
                     f"  SELECT {', '.join(selects)}\n  FROM {previous}\n"
                     f"  GROUP BY {', '.join(keys)}"
+                )
+            case AssetScan():
+                return f"  SELECT {', '.join(step.columns)} FROM {step.implementation_id}"
+            case BucketWindow():
+                end_day = last_complete_day(as_of, step.timezone) + timedelta(days=1)
+                start_day = end_day - timedelta(days=step.complete_calendar_days)
+                return (
+                    f"  SELECT * FROM {previous}\n"
+                    f"  WHERE {step.bucket_column} >= DATE '{start_day.isoformat()}' "
+                    f"AND {step.bucket_column} < DATE '{end_day.isoformat()}'"
+                )
+            case Rollup():
+                selects = [step.entity_key] + [
+                    f"{_AGG_SQL[m.aggregation].format(e=m.name)} AS {m.name}" for m in step.measures
+                ]
+                return (
+                    f"  SELECT {', '.join(selects)}\n  FROM {previous}\n"
+                    f"  GROUP BY {step.entity_key}"
                 )
             case PopulationJoin():
                 selects = [f"c.{step.entity_key} AS {step.entity_key}"]
@@ -233,6 +306,8 @@ def _allowed_tables(plan: Plan) -> tuple[str, ...]:
         match step:
             case SourceScan():
                 names.append(step.table)
+            case AssetScan():
+                names.append(step.implementation_id)
             case IdentityJoin():
                 names.append(step.mapping_table)
             case PopulationJoin():

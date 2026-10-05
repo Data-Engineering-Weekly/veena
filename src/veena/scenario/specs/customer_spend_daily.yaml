@@ -12,7 +12,7 @@ measures:
     calculation: semantic:purchase_amount_usd@4
     aggregation: sum
 window:
-  history_days: 120
+  history_days: 90
   timezone: UTC
 identity_policy: semantic:customer_identity_point_in_time@2
 service:

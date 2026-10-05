@@ -24,6 +24,10 @@ class EventKind(StrEnum):
     QUESTION_OPENED = "question_opened"
     DECISION_RECORDED = "decision_recorded"
     PROPOSAL_OPENED = "proposal_opened"
+    PROPOSAL_APPROVED = "proposal_approved"
+    PROPOSAL_REJECTED = "proposal_rejected"
+    BACKFILL_PROGRESSED = "backfill_progressed"
+    INTERFACE_SWITCHED = "interface_switched"
     IMPLEMENTATION_PLANNED = "implementation_planned"
     IMPLEMENTATION_REFRESHED = "implementation_refreshed"
     VERIFICATION_RECORDED = "verification_recorded"
@@ -94,7 +98,12 @@ class DecisionRecorded(_Payload):
 
 
 class ProposalOpened(_Payload):
-    """The engine wants to change the graph and says exactly how."""
+    """The engine wants to change the graph and says exactly how.
+
+    `kind_of_change` is `direct` (build one asset from sources), `share` (create a shared
+    intermediate and rewire dependents), or `repair`. `alternatives` lists what subsumption
+    considered. Costs are fact rows processed per refresh, measured on the backend.
+    """
 
     kind: Literal[EventKind.PROPOSAL_OPENED] = EventKind.PROPOSAL_OPENED
     proposal_id: str
@@ -102,6 +111,49 @@ class ProposalOpened(_Payload):
     changes: tuple[str, ...] = Field(min_length=1)
     affected_assets: tuple[str, ...]
     assumed_revision: int = Field(ge=0)
+    kind_of_change: Literal["direct", "share", "repair"] = "direct"
+    alternatives: tuple[str, ...] = ()
+    cost_current_rows: int | None = None
+    cost_proposed_rows: int | None = None
+    evidence_required: tuple[str, ...] = ()
+    shared_asset: str | None = None
+    dependents: tuple[str, ...] = ()
+
+
+class ProposalApproved(_Payload):
+    """A person or policy allowed the proposal to proceed."""
+
+    kind: Literal[EventKind.PROPOSAL_APPROVED] = EventKind.PROPOSAL_APPROVED
+    proposal_id: str
+    reason: str = ""
+
+
+class ProposalRejected(_Payload):
+    """The proposal will not proceed, and why."""
+
+    kind: Literal[EventKind.PROPOSAL_REJECTED] = EventKind.PROPOSAL_REJECTED
+    proposal_id: str
+    reason: str
+
+
+class BackfillProgressed(_Payload):
+    """A backfill moved a source position forward for an implementation."""
+
+    kind: Literal[EventKind.BACKFILL_PROGRESSED] = EventKind.BACKFILL_PROGRESSED
+    implementation_id: str
+    source: str
+    position_from: datetime
+    position_to: datetime
+    rows: int = Field(ge=0)
+
+
+class InterfaceSwitched(_Payload):
+    """One interface moved during a staged migration, before the deployment completed."""
+
+    kind: Literal[EventKind.INTERFACE_SWITCHED] = EventKind.INTERFACE_SWITCHED
+    proposal_id: str
+    asset_id: str
+    implementation_id: str
 
 
 class ImplementationPlanned(_Payload):
@@ -146,6 +198,10 @@ class DeploymentActivated(_Payload):
     verification_id: str
     assumed_revision: int = Field(ge=0)
     activated: dict[str, str] = Field(description="asset_id -> implementation_id")
+    replaced: dict[str, str | None] = Field(
+        default_factory=dict, description="asset_id -> previous implementation_id, or None"
+    )
+    staged: bool = False
 
 
 class DeploymentRolledBack(_Payload):
@@ -155,6 +211,11 @@ class DeploymentRolledBack(_Payload):
     deployment_id: str
     reason: str
     affected_consumers: tuple[str, ...]
+    interval_start: datetime
+    interval_end: datetime
+    restored: dict[str, str | None] = Field(
+        default_factory=dict, description="asset_id -> implementation_id the interface went back to"
+    )
 
 
 class AssetRetired(_Payload):
@@ -173,6 +234,10 @@ Payload = Annotated[
     | QuestionOpened
     | DecisionRecorded
     | ProposalOpened
+    | ProposalApproved
+    | ProposalRejected
+    | BackfillProgressed
+    | InterfaceSwitched
     | ImplementationPlanned
     | ImplementationRefreshed
     | VerificationRecorded

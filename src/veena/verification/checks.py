@@ -236,6 +236,38 @@ def build_checks(
     return tuple(checks)
 
 
+def equivalence(
+    previous: str,
+    candidate: str,
+    keys: tuple[str, ...],
+    measures: tuple[str, ...],
+    execute: Execute,
+) -> CheckResult:
+    """Compare two implementations of the same spec at matching inputs, key by key.
+
+    Agreement is weak evidence: both can share a mistake. The result is graded `test`.
+    """
+    on = " AND ".join(f"p.{k} = c.{k}" for k in keys)
+    diffs = " OR ".join(
+        f"abs(COALESCE(p.{m}, 0) - COALESCE(c.{m}, 0)) > {ABSOLUTE_TOLERANCE}" for m in measures
+    )
+    sql = (
+        f"SELECT count(*) FROM {previous} p FULL OUTER JOIN {candidate} c ON {on} "
+        f"WHERE p.{keys[0]} IS NULL OR c.{keys[0]} IS NULL OR {diffs}"
+    )
+    rows = execute(sql)
+    differing = int(str(rows[0][0])) if rows and rows[0] else 0
+    return CheckResult(
+        name="equivalence_at_version",
+        description=f"{candidate} agrees with {previous} on every {', '.join(keys)}",
+        grade=Grade.TEST,
+        structural=False,
+        passed=differing == 0,
+        detail=f"{differing} keys differ" if differing else "all keys agree",
+        uncertainty="two implementations can agree because they share the same mistake",
+    )
+
+
 def verify(
     spec: AssetSpec,
     semantic: SemanticModel,

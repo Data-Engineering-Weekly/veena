@@ -4,6 +4,12 @@ This package must not import `veena.planner` or `veena.backends`. It receives th
 output relation and a way to run SQL, and builds every query itself.
 """
 
-from veena.verification.checks import Check, VerificationOutcome, build_checks, verify
+from veena.verification.checks import (
+    Check,
+    VerificationOutcome,
+    build_checks,
+    equivalence,
+    verify,
+)
 
-__all__ = ["Check", "VerificationOutcome", "build_checks", "verify"]
+__all__ = ["Check", "VerificationOutcome", "build_checks", "equivalence", "verify"]

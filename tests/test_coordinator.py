@@ -69,13 +69,14 @@ def test_activate_runs_the_full_loop(setup, scenario_conn):
     outcome = Coordinator(registry, backend, semantic).activate("customer_spend_30d", as_of=AS_OF)
     assert outcome.activated
     assert outcome.attempts == 1
-    assert outcome.deployment_id == "customer_spend_30d:d1"
+    assert outcome.deployment_id == "customer_spend_30d_d1"
     kinds = [s.event.kind for s in registry.events()]
     assert kinds == [
         EventKind.ASSET_REQUESTED,
         EventKind.SPEC_RESOLVED,
         EventKind.COMMITMENT_REGISTERED,
         EventKind.PROPOSAL_OPENED,
+        EventKind.PROPOSAL_APPROVED,
         EventKind.IMPLEMENTATION_PLANNED,
         EventKind.IMPLEMENTATION_REFRESHED,
         EventKind.VERIFICATION_RECORDED,
@@ -96,6 +97,7 @@ def test_commitment_registered_during_verification_blocks_activation(setup):
     registry, backend, semantic = setup
     coordinator = Coordinator(registry, backend, semantic)
     handle = coordinator.propose("customer_spend_30d", as_of=AS_OF)
+    assert not isinstance(handle, str)
     handle = coordinator.implement(handle)
     handle = coordinator.verify(handle)
     registry.append(
@@ -122,11 +124,11 @@ def test_repair_bound_escalates_with_a_question(setup):
         registry, backend, semantic, planner=naive_planner, repair_bound=1
     ).activate("customer_spend_30d", as_of=AS_OF)
     assert not outcome.activated
-    assert outcome.question_id == "customer_spend_30d:q1"
+    assert outcome.question_id == "customer_spend_30d_q1"
     verifications = list(registry.state.verifications.values())
     assert len(verifications) == 1
     assert not verifications[0].passed
-    question = registry.state.questions["customer_spend_30d:q1"]
+    question = registry.state.questions["customer_spend_30d_q1"]
     assert "reconcile_spend_usd" in question.question
     assert registry.state.assets["customer_spend_30d"].status is AssetStatus.SPECIFIED
 
@@ -135,10 +137,11 @@ def test_deploy_refuses_unverified_or_failed(setup):
     registry, backend, semantic = setup
     coordinator = Coordinator(registry, backend, semantic, planner=naive_planner)
     handle = coordinator.propose("customer_spend_30d", as_of=AS_OF)
+    assert not isinstance(handle, str)
     with pytest.raises(CoordinationError, match="not verified"):
         coordinator.deploy(handle)
     handle = coordinator.verify(coordinator.implement(handle))
-    with pytest.raises(CoordinationError, match="failed verification"):
+    with pytest.raises(CoordinationError, match="failed"):
         coordinator.deploy(handle)
 
 

@@ -14,7 +14,7 @@ Veena is the engine that owns that rewiring.
 
 ## Status
 
-Early build. Phases 1 and 2 are done. These parts exist and are tested:
+Early build. Phases 1 to 3 are done. These parts exist and are tested:
 
 | Part | What it does |
 |---|---|
@@ -26,10 +26,12 @@ Early build. Phases 1 and 2 are done. These parts exist and are tested:
 | Planner | Deterministic compiler from a spec plus the semantic model to a backend-neutral plan. No model call. |
 | DuckDB backend | Renders a plan to SQL, materializes an implementation, publishes the asset's view, reports source progress. |
 | Verification | Generates uniqueness, population, reconciliation, and conservation checks from the semantic model. Never reads the candidate's SQL. Grades its evidence. |
-| Coordinator | Propose, implement, verify, deploy. Re-plans up to a bound, then asks a person. Refuses to deploy if a commitment changed. |
+| Coordinator | Propose, implement, verify, deploy. Re-plans up to a bound, then asks a person. Refuses to deploy if a commitment changed. Switches every affected interface in one deployment and can roll it back. |
+| Overlap | Finds which existing asset can serve a new request, or derives a shared daily intermediate that serves two windowed requests. From specs only. |
+| Policy | Minimum measured benefit, a reorganization cap, and optional human approval gate every share proposal. |
 | CLI | `veena` wraps all of the above. |
 
-Not built yet, in order: overlap proposals and rewiring, natural-language request resolution, shadow mode on a real warehouse, and the operator view.
+Not built yet, in order: natural-language request resolution with a classifier and a drafter, shadow mode on a real warehouse, and the operator view.
 
 ## Quick start
 
@@ -38,6 +40,8 @@ uv sync
 uv run veena scenario build
 uv run veena asset request src/veena/scenario/specs/customer_spend_30d.yaml --consumer app:sales
 uv run veena asset activate customer_spend_30d
+uv run veena asset request src/veena/scenario/specs/customer_spend_90d.yaml --consumer agent:support
+uv run veena asset activate customer_spend_90d
 uv run veena asset show customer_spend_30d
 ```
 

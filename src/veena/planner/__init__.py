@@ -1,8 +1,16 @@
 """The planner: a deterministic compiler from a specification to a backend-neutral plan."""
 
-from veena.planner.compile import compile_plan, implementation_id
+from veena.planner.compile import (
+    compile_from_provider,
+    compile_plan,
+    dependencies,
+    implementation_id,
+    refresh_rule,
+)
 from veena.planner.plan import (
     Aggregate,
+    AssetScan,
+    BucketWindow,
     Dependency,
     IdentityJoin,
     Implementation,
@@ -10,6 +18,8 @@ from veena.planner.plan import (
     Plan,
     PopulationJoin,
     RefreshRule,
+    Rollup,
+    RollupMeasure,
     SourceScan,
     Step,
     TimeAttribution,
@@ -20,6 +30,8 @@ from veena.planner.plan import (
 
 __all__ = [
     "Aggregate",
+    "AssetScan",
+    "BucketWindow",
     "Dependency",
     "IdentityJoin",
     "Implementation",
@@ -27,12 +39,17 @@ __all__ = [
     "Plan",
     "PopulationJoin",
     "RefreshRule",
+    "Rollup",
+    "RollupMeasure",
     "SourceScan",
     "Step",
     "TimeAttribution",
     "WindowStep",
+    "compile_from_provider",
     "compile_plan",
+    "dependencies",
     "describe_plan",
     "implementation_id",
+    "refresh_rule",
     "step_output_columns",
 ]

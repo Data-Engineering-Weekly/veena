@@ -7,8 +7,8 @@ One document per phase, plus the vision that every phase serves. Read [00-vision
 | [00-vision.md](00-vision.md) | What veena is, who it serves, what it will not do | Agreed Oct 5 2026 |
 | [01-foundation.md](01-foundation.md) | Registry, specification IR, semantic model, scenario, CLI | Done |
 | [02-planner-verification.md](02-planner-verification.md) | Spec to implementation, independent verification, first activation | Done |
-| [03-overlap-reorganization.md](03-overlap-reorganization.md) | Shared intermediates, rewiring, the activation guard | Next |
-| [04-request-resolution.md](04-request-resolution.md) | Natural language to spec, questions and decisions | Planned |
+| [03-overlap-reorganization.md](03-overlap-reorganization.md) | Shared intermediates, rewiring, the activation guard | Done |
+| [04-request-resolution.md](04-request-resolution.md) | Natural language to spec, questions and decisions | Next |
 | [05-shadow-mode.md](05-shadow-mode.md) | Import a real warehouse, propose without acting, first backend | Planned |
 | [06-operations-retirement.md](06-operations-retirement.md) | Operator view, brakes, repair, retirement | Planned |
 

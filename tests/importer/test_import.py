@@ -24,7 +24,7 @@ from veena.registry.state import AssetStatus, ProposalStatus
 from veena.scenario.dbt_fixture import DbtFixtureConfig, build_manifest, build_query_history
 from veena.semantic.model import SemanticModel
 
-FIXTURE_DIR = Path(__file__).resolve().parents[2] / "src" / "veena" / "scenario" / "dbt"
+FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "shoply"
 
 
 @pytest.fixture(scope="module")

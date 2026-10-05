@@ -56,6 +56,15 @@ class SnowflakeBackend(SqlBackend):
             self._opened = raw if hasattr(raw, "execute") else _CursorConnection(raw)
         return self._opened
 
+    def close(self) -> None:
+        """Close the live connection if one was opened."""
+        if self._opened is not None:
+            raw = getattr(self._opened, "_raw", self._opened)
+            close = getattr(raw, "close", None)
+            if callable(close):
+                close()
+            self._opened = None
+
     def ts_literal(self, value: datetime) -> str:
         """Snowflake takes `TIMESTAMP_TZ` through a cast."""
         return f"'{value.astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S')} +0000'::TIMESTAMP_TZ"

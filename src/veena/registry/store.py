@@ -101,6 +101,14 @@ class SqliteEventStore:
         """Close the underlying connection."""
         self._conn.close()
 
+    def __enter__(self) -> SqliteEventStore:
+        """Support `with SqliteEventStore(path) as store:`."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Close on exit."""
+        self.close()
+
     def revision(self) -> int:
         """The `seq` of the newest event, or 0 when empty."""
         row = self._conn.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()

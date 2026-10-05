@@ -20,3 +20,8 @@ build/
 # IDE
 .idea/
 .vscode/
+
+# Coverage and builds
+.coverage
+coverage.xml
+htmlcov/

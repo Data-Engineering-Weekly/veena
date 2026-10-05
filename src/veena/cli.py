@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from veena.semantic.model import SemanticModel
     from veena.spec.model import AssetSpec
 
-app = typer.Typer(no_args_is_help=True, help="Veena: the self-organizing data stack.")
+app = typer.Typer(no_args_is_help=True)
 spec_app = typer.Typer(no_args_is_help=True, help="Validate and compare specifications.")
 scenario_app = typer.Typer(no_args_is_help=True, help="Build the synthetic DuckDB scenario.")
 registry_app = typer.Typer(no_args_is_help=True, help="Inspect the event-sourced registry.")
@@ -180,7 +180,23 @@ def scenario_semantic() -> None:
 
 
 def _open_registry(path: Path) -> Registry:
-    return Registry(SqliteEventStore(path))
+    """Open the registry. Callers close it; `_closing` does so at command exit."""
+    registry = Registry(SqliteEventStore(path))
+    _OPEN.append(registry)
+    return registry
+
+
+_OPEN: list[Registry | DuckDBBackend] = []
+
+
+@app.callback(result_callback=lambda *a, **k: _close_all())
+def _root() -> None:
+    """Veena: the self-organizing data stack."""
+
+
+def _close_all() -> None:
+    while _OPEN:
+        _OPEN.pop().close()
 
 
 @registry_app.command("log")
@@ -283,7 +299,9 @@ def _resolver(
     model = load_semantic_model(_semantic_path(semantic))
     execute = None
     if scenario.exists():
-        execute = DuckDBBackend(duckdb.connect(str(scenario), read_only=True)).execute
+        backend = DuckDBBackend(duckdb.connect(str(scenario), read_only=True))
+        _OPEN.append(backend)
+        execute = backend.execute
     return reg, Resolver(
         reg,
         model,
@@ -433,7 +451,9 @@ def asset_plan(
     try:
         model = load_semantic_model(_semantic_path(semantic))
         plan = compile_plan(spec, model)
-        sql, drafted = DuckDBBackend(duckdb.connect()).render(plan, as_of=_as_of(as_of))
+        backend = DuckDBBackend(duckdb.connect())
+        _OPEN.append(backend)
+        sql, drafted = backend.render(plan, as_of=_as_of(as_of))
     except VeenaError as exc:
         raise _fail(exc) from exc
     typer.echo(describe_plan(plan))
@@ -501,6 +521,7 @@ def asset_verify(
     try:
         model = load_semantic_model(_semantic_path(semantic))
         backend = DuckDBBackend(duckdb.connect(str(scenario), read_only=True))
+        _OPEN.append(backend)
         outcome = verify(spec, model, asset_id, backend.execute, as_of=_as_of(as_of))
     except VeenaError as exc:
         raise _fail(exc) from exc
@@ -679,6 +700,7 @@ def _coordinator(
     reg = _open_registry(registry)
     model = load_semantic_model(_semantic_path(semantic))
     backend = DuckDBBackend(duckdb.connect(str(scenario)))
+    _OPEN.append(backend)
     policy = ReorganizationPolicy(
         autonomy=_autonomy(autonomy),
         require_approval=require_approval,

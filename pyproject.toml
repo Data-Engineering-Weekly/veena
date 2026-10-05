@@ -3,10 +3,22 @@ name = "veena"
 version = "0.1.0"
 description = "Self-organizing data stack: consumers declare outcomes, the engine maintains the asset graph."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     { name = "Ananth Packkildurai", email = "apackkildurai@gmail.com" }
 ]
 requires-python = ">=3.14"
+keywords = ["data-engineering", "orchestration", "semantic-layer", "dbt", "duckdb", "snowflake", "agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
 dependencies = [
     "anthropic>=1.11.0",
     "duckdb>=1.4",
@@ -27,9 +39,16 @@ postgres = [
 dev = [
     "mypy>=1.17",
     "pytest>=8.4",
+    "pytest-cov>=7.1.0",
     "ruff>=0.13",
     "types-pyyaml>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ananthdurai/veena"
+Documentation = "https://github.com/ananthdurai/veena/blob/main/USAGE.md"
+Changelog = "https://github.com/ananthdurai/veena/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ananthdurai/veena/issues"
 
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
@@ -83,7 +102,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-ra"
+filterwarnings = ["error::ResourceWarning"]
 
 [[tool.mypy.overrides]]
 module = ["tests.*"]

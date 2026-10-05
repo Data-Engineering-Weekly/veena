@@ -114,6 +114,12 @@ class SqlBackend:
         """DDL that creates or repoints a view."""
         return f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {relation}"
 
+    def close(self) -> None:
+        """Close the connection when it can be closed."""
+        close = getattr(self._conn, "close", None)
+        if callable(close):
+            close()
+
     # ---- Backend protocol ----
 
     def render(self, plan: Plan, *, as_of: datetime) -> tuple[str, tuple[str, ...]]:

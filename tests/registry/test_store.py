@@ -15,8 +15,10 @@ def _event(asset_id: str = "customer_spend_30d") -> Event:
 @pytest.fixture(params=["memory", "sqlite"])
 def store(request, tmp_path):
     if request.param == "memory":
-        return MemoryEventStore()
-    return SqliteEventStore(tmp_path / "registry.sqlite")
+        yield MemoryEventStore()
+        return
+    with SqliteEventStore(tmp_path / "registry.sqlite") as sqlite_store:
+        yield sqlite_store
 
 
 def test_append_assigns_increasing_seq(store):
@@ -44,7 +46,7 @@ def test_sqlite_store_persists_across_connections(tmp_path):
     event = _event()
     first.append(event)
     first.close()
-    second = SqliteEventStore(path)
-    stored = list(second.read())
+    with SqliteEventStore(path) as second:
+        stored = list(second.read())
     assert len(stored) == 1
     assert stored[0].event == event

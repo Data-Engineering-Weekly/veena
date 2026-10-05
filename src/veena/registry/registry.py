@@ -66,6 +66,20 @@ class Registry:
         """Read stored events after a revision."""
         return self._store.read(after=after)
 
+    def close(self) -> None:
+        """Close the underlying store when it holds a connection."""
+        close = getattr(self._store, "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self) -> Registry:
+        """Support `with Registry(...) as registry:`."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Close on exit."""
+        self.close()
+
     def _catch_up(self) -> None:
         for stored in self._store.read(after=self._state.revision):
             self._state.apply(stored)

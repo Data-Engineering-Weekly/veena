@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "anthropic>=1.11.0",
     "duckdb>=1.4",
     "pydantic>=2.11",
     "pytz>=2025.2",  # duckdb needs it to return TIMESTAMPTZ values to Python

@@ -16,13 +16,31 @@ sources:
     table: purchases
     primary_key: [purchase_id]
     columns: [purchase_id, account_id, purchased_at, amount_usd, status]
+  - name: households_by_residence
+    table: households_by_residence
+    primary_key: [household_id, customer_id]
+    columns: [household_id, customer_id]
+  - name: households_by_billing
+    table: households_by_billing
+    primary_key: [household_id, customer_id]
+    columns: [household_id, customer_id]
 
 entities:
   - name: customer
     version: 1
     source: customers
     key: customer_id
-    description: One row per registered customer, including customers with no purchases.
+    description: One row per registered customer, the individual account holder.
+  - name: household_by_residence
+    version: 1
+    source: households_by_residence
+    key: household_id
+    description: Groups customers who share a primary residence address.
+  - name: household_by_billing
+    version: 1
+    source: households_by_billing
+    key: household_id
+    description: Groups customers whose billing accounts are linked.
 
 calculations:
   - name: purchase_amount_usd
@@ -30,7 +48,13 @@ calculations:
     source: purchases
     expression: "CASE WHEN status = 'settled' THEN amount_usd ELSE 0 END"
     unit: USD
-    description: Settled purchase amount. Refunded purchases contribute zero.
+    description: Spend, spending, or total amount in USD from settled purchases. Refunded purchases contribute zero.
+  - name: purchase_count
+    version: 1
+    source: purchases
+    expression: "CASE WHEN status = 'settled' THEN 1 ELSE 0 END"
+    unit: purchases
+    description: Count, number, or how many settled purchases were made. Refunded purchases do not count.
 
 time_rules:
   - name: purchase_date

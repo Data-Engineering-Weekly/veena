@@ -31,6 +31,9 @@ from veena.verification import verify
 if TYPE_CHECKING:
     from veena.coordinator import ActivationOutcome
     from veena.evidence import CheckResult
+    from veena.models import Classifier, Drafter
+    from veena.registry.state import RegistryState
+    from veena.resolver import Outcome, Resolver
     from veena.spec.model import AssetSpec
 
 app = typer.Typer(no_args_is_help=True, help="Veena: the self-organizing data stack.")
@@ -209,14 +212,136 @@ def registry_assets(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
         )
 
 
+ClassifierChoice = Annotated[
+    str,
+    typer.Option(
+        "--classifier",
+        help="keyword (offline baseline), claude (needs ANTHROPIC_API_KEY), jev (needs JEV_*).",
+    ),
+]
+DrafterChoice = Annotated[
+    str,
+    typer.Option("--drafter", help="none (template prose) or claude (needs ANTHROPIC_API_KEY)."),
+]
+
+
+def _classifier(name: str) -> Classifier:
+    from veena.models import ClaudeClassifier, JevClassifier, KeywordClassifier
+
+    match name:
+        case "keyword":
+            return KeywordClassifier()
+        case "claude":
+            return ClaudeClassifier()
+        case "jev":
+            return JevClassifier()
+    raise _fail(VeenaError(f"unknown classifier {name!r}; use keyword, claude, or jev"))
+
+
+def _drafter(name: str) -> Drafter | None:
+    from veena.models import ClaudeDrafter
+
+    match name:
+        case "none":
+            return None
+        case "claude":
+            return ClaudeDrafter()
+    raise _fail(VeenaError(f"unknown drafter {name!r}; use none or claude"))
+
+
+Threshold = Annotated[
+    float,
+    typer.Option(
+        "--threshold", help="Probability below which a slot becomes a question (policy knob)."
+    ),
+]
+
+
+def _resolver(
+    registry: Path,
+    scenario: Path,
+    semantic: Path | None,
+    classifier: str,
+    drafter: str,
+    threshold: float,
+) -> tuple[Registry, Resolver]:
+    from veena.policy import ResolutionPolicy
+    from veena.resolver import Resolver
+
+    reg = _open_registry(registry)
+    model = load_semantic_model(_semantic_path(semantic))
+    execute = None
+    if scenario.exists():
+        execute = DuckDBBackend(duckdb.connect(str(scenario), read_only=True)).execute
+    return reg, Resolver(
+        reg,
+        model,
+        _classifier(classifier),
+        drafter=_drafter(drafter),
+        policy=ResolutionPolicy(default_threshold=threshold),
+        execute=execute,
+    )
+
+
+def _report_outcome(outcome: Outcome, reg: Registry) -> None:
+    from veena.resolver import OpenQuestion, Refusal, ResolvedSpec
+
+    match outcome:
+        case ResolvedSpec():
+            spec = outcome.spec
+            typer.echo(f"resolved {spec.ref}; registry at revision {reg.revision}")
+            for key, origin in spec.provenance.items():
+                typer.echo(f"  {key} <- {origin}")
+            if outcome.reused_decisions:
+                typer.echo(f"  reused decisions: {', '.join(outcome.reused_decisions)}")
+        case OpenQuestion():
+            typer.echo(f"question {outcome.question_id} on {outcome.slot}:")
+            typer.echo(f"  {outcome.text}")
+            for alternative, evidence in zip(outcome.alternatives, outcome.evidence, strict=False):
+                typer.echo(f"  - {alternative}: {evidence}")
+            for alternative in outcome.alternatives[len(outcome.evidence) :]:
+                typer.echo(f"  - {alternative}")
+            typer.echo(
+                f"answer with: veena question answer {outcome.question_id} --select <alternative>"
+            )
+            raise typer.Exit(code=3)
+        case Refusal():
+            typer.echo(f"refused: {outcome.reason}")
+            raise typer.Exit(code=4)
+
+
 @asset_app.command("request")
 def asset_request(
-    spec_path: Annotated[Path, typer.Argument(help="Resolved spec to register.")],
-    consumer: Annotated[str, typer.Option(help="Who depends on the asset, e.g. app:sales.")],
+    spec_path: Annotated[
+        Path | None, typer.Argument(help="Resolved spec to register. Omit to resolve --text.")
+    ] = None,
+    consumer: Annotated[str, typer.Option(help="Who depends on the asset, e.g. app:sales.")] = "",
     text: Annotated[str, typer.Option(help="The request in the consumer's words.")] = "",
+    asset_id: Annotated[
+        str, typer.Option("--asset-id", help="Identity for the asset when resolving from text.")
+    ] = "",
     registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+    classifier: ClassifierChoice = "keyword",
+    drafter: DrafterChoice = "none",
+    threshold: Threshold = 0.8,
 ) -> None:
-    """Record a request, its resolved spec, and the consumer's commitment."""
+    """Record a request. With a spec file, register it as resolved; with --text, resolve it."""
+    if not consumer:
+        raise _fail(VeenaError("--consumer is required"))
+    if spec_path is None:
+        if not text or not asset_id:
+            raise _fail(VeenaError("resolving from text needs --text and --asset-id"))
+        from veena.resolver import Request
+
+        try:
+            reg, resolver = _resolver(registry, scenario, semantic, classifier, drafter, threshold)
+            outcome = resolver.resolve(Request(asset_id=asset_id, consumer=consumer, text=text))
+        except VeenaError as exc:
+            raise _fail(exc) from exc
+        _report_outcome(outcome, reg)
+        return
     try:
         spec = load_spec(spec_path)
     except VeenaError as exc:
@@ -257,6 +382,25 @@ def asset_request(
     except VeenaError as exc:
         raise _fail(exc) from exc
     typer.echo(f"registered {spec.ref} for {consumer}; registry at revision {reg.revision}")
+
+
+@asset_app.command("resolve")
+def asset_resolve(
+    asset_id: str,
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+    classifier: ClassifierChoice = "keyword",
+    drafter: DrafterChoice = "none",
+    threshold: Threshold = 0.8,
+) -> None:
+    """Resolve a recorded request again, for example after answering its question."""
+    try:
+        reg, resolver = _resolver(registry, scenario, semantic, classifier, drafter, threshold)
+        outcome = resolver.resume(asset_id)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    _report_outcome(outcome, reg)
 
 
 def _spec_for(reg: Registry, asset_id: str) -> tuple[Registry, AssetSpec]:
@@ -352,12 +496,23 @@ def asset_verify(
 
 
 @asset_app.command("show")
-def asset_show(asset_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -> None:
+def asset_show(
+    asset_id: str,
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    output_format: Annotated[str, typer.Option("--format", help="text or yaml.")] = "text",
+) -> None:
     """Print the trail: spec, commitments, deployments, proposals, verifications, decisions."""
     state = _open_registry(registry).state
     asset = state.assets.get(asset_id)
     if asset is None:
         raise _fail(VeenaError(f"unknown asset {asset_id!r}"))
+    if output_format == "yaml":
+        typer.echo(_fragment_yaml(asset_id, state), nl=False)
+        return
+    if asset.request_text:
+        typer.echo(f'request by {asset.requested_by}: "{asset.request_text}"')
+    if asset.refused:
+        typer.echo(f"refused: {asset.refused}")
     typer.echo(
         f"asset {asset.asset_id}  status={asset.status}  impl={asset.active_implementation or '-'}"
         + (f"  reads {', '.join(asset.depends_on)}" if asset.depends_on else "")
@@ -419,7 +574,59 @@ def asset_show(asset_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -> None
             answer = (
                 f" -> {state.decisions[q.decision_id].selected}" if q.decision_id else " (open)"
             )
-            typer.echo(f"question {q.question_id}: {q.question}{answer}")
+            typer.echo(f"question {q.question_id} ({q.slot or 'general'}): {q.question}{answer}")
+    calls = [
+        c for c in (*state.classifications, *state.drafts) if c.event_payload.asset_id == asset_id
+    ]
+    if calls:
+        typer.echo(f"model calls: {len(calls)} (see `veena models calls --asset-id {asset_id}`)")
+
+
+def _fragment_yaml(asset_id: str, state: RegistryState) -> str:
+    """Render the article's fragment: requirements with ref and source, plus trail refs."""
+    import yaml
+
+    asset = state.assets[asset_id]
+    spec = asset.spec
+    doc: dict[str, object] = {
+        "asset_id": asset_id,
+        "spec_version": spec.spec_version if spec else None,
+    }
+    if spec is not None:
+        values: dict[str, str] = {
+            "population.entity": str(spec.population.entity),
+            "population.include_inactive": str(spec.population.include_inactive).lower(),
+            "measures.calculation": ", ".join(str(m.calculation) for m in spec.measures),
+            "measures.aggregation": ", ".join(m.aggregation for m in spec.measures),
+            "window.complete_calendar_days": str(spec.window.complete_calendar_days),
+            "window.timezone": spec.window.timezone,
+            "identity_policy": str(spec.identity_policy),
+            "service.incorporate_within": (
+                f"{int(spec.service.incorporate_within.total_seconds())}s"
+            ),
+            "service.access_policy": str(spec.service.access_policy),
+            "service.budget_policy": str(spec.service.budget_policy),
+        }
+        requirements: dict[str, dict[str, str]] = {}
+        for key, value in values.items():
+            source = spec.provenance.get(key)
+            requirements[key] = {"ref": value, "source": str(source) if source else "unrecorded"}
+        doc["requirements"] = requirements
+    proposals = [p for p in state.proposals.values() if asset_id in p.affected_assets]
+    if proposals:
+        last = sorted(proposals, key=lambda p: p.seq)[-1]
+        doc["change_proposal_ref"] = f"proposal:{last.proposal_id}"
+        if last.verifications:
+            doc["verification_ref"] = f"verification:{last.verifications[-1]}"
+        if last.deployment_id:
+            doc["deployment_ref"] = f"deployment:{last.deployment_id}"
+    questions = [q for q in state.questions.values() if q.asset_id == asset_id]
+    if questions:
+        doc["decisions"] = [
+            {"question": q.question_id, "slot": q.slot, "decision": q.decision_id or "open"}
+            for q in questions
+        ]
+    return yaml.safe_dump(doc, sort_keys=False)
 
 
 def _print_checks(checks: tuple[CheckResult, ...]) -> None:
@@ -596,3 +803,171 @@ def deployment_rollback(
         raise _fail(exc) from exc
     d = reg.state.deployments[deployment_id]
     typer.echo(f"rolled back {deployment_id}; restored {d.replaced}")
+
+
+question_app = typer.Typer(no_args_is_help=True, help="List and answer the engine's questions.")
+models_app = typer.Typer(no_args_is_help=True, help="Inspect model calls and calibration.")
+app.add_typer(question_app, name="question")
+app.add_typer(models_app, name="models")
+
+
+@question_app.command("list")
+def question_list(
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    open_only: Annotated[bool, typer.Option("--open", help="Only unanswered questions.")] = False,
+) -> None:
+    """List questions with slot, asset, and answer."""
+    state = _open_registry(registry).state
+    for q in sorted(state.questions.values(), key=lambda q: q.seq):
+        if open_only and q.decision_id:
+            continue
+        answer = f"-> {state.decisions[q.decision_id].selected}" if q.decision_id else "(open)"
+        typer.echo(f"{q.question_id:<30} {q.asset_id:<24} {q.slot or '-':<28} {answer}")
+
+
+@question_app.command("show")
+def question_show(question_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -> None:
+    """Print one question with its alternatives and evidence."""
+    state = _open_registry(registry).state
+    q = state.questions.get(question_id)
+    if q is None:
+        raise _fail(VeenaError(f"unknown question {question_id!r}"))
+    typer.echo(
+        f"question {q.question_id} for {q.asset_id} ({q.slot or 'general'}), "
+        f"asked by {q.consumer or '-'}"
+    )
+    typer.echo(f"  {q.question}")
+    for alternative, evidence in zip(q.alternatives, q.evidence, strict=False):
+        typer.echo(f"  - {alternative}: {evidence}")
+    for alternative in q.alternatives[len(q.evidence) :]:
+        typer.echo(f"  - {alternative}")
+    if q.decision_id:
+        d = state.decisions[q.decision_id]
+        typer.echo(
+            f"  answered by {d.actor} ({d.authority}): {d.selected}, scope {d.scope}: {d.rationale}"
+        )
+
+
+@question_app.command("answer")
+def question_answer(
+    question_id: str,
+    select: Annotated[str, typer.Option(help="One of the question's alternatives.")],
+    rationale: Annotated[str, typer.Option(help="Why this alternative.")] = "",
+    scope: Annotated[
+        str,
+        typer.Option(help="asset, consumer, or workspace. Workspace needs --authority role:..."),
+    ] = "asset",
+    actor: Annotated[str, typer.Option(help="Who is deciding, e.g. user:ananth.")] = "user:owner",
+    authority: Annotated[
+        str, typer.Option(help="Under what authority, e.g. role:data_owner.")
+    ] = "role:data_owner",
+    registry: RegistryPath = DEFAULT_REGISTRY,
+) -> None:
+    """Record a decision for an open question."""
+    from veena.registry import DecisionRecorded
+
+    reg = _open_registry(registry)
+    q = reg.state.questions.get(question_id)
+    if q is None:
+        raise _fail(VeenaError(f"unknown question {question_id!r}"))
+    scope_value = {
+        "asset": f"asset:{q.asset_id}",
+        "consumer": f"consumer:{q.consumer}",
+        "workspace": "workspace",
+    }.get(scope)
+    if scope_value is None:
+        raise _fail(VeenaError("scope must be asset, consumer, or workspace"))
+    count = sum(1 for d in reg.state.decisions.values() if d.question_id == question_id)
+    decision_id = f"{question_id}_d{count + 1}"
+    try:
+        reg.append(
+            Event(
+                actor=actor,
+                authority=authority,
+                causes=(f"question:{question_id}",),
+                payload=DecisionRecorded(
+                    decision_id=decision_id,
+                    question_id=question_id,
+                    selected=select,
+                    rationale=rationale,
+                    scope=scope_value,
+                ),
+            )
+        )
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(
+        f"recorded {decision_id}: {select} with scope {scope_value}; "
+        f"resume with `veena asset resolve {q.asset_id}`"
+    )
+
+
+@models_app.command("calls")
+def models_calls(registry: RegistryPath = DEFAULT_REGISTRY, asset_id: str = "") -> None:
+    """List every recorded classifier and drafter call."""
+    from veena.registry.events import ClassificationProduced
+
+    state = _open_registry(registry).state
+    calls = sorted((*state.classifications, *state.drafts), key=lambda c: c.seq)
+    for call in calls:
+        p = call.event_payload
+        if asset_id and p.asset_id != asset_id:
+            continue
+        if isinstance(p, ClassificationProduced):
+            typer.echo(
+                f"{call.seq:>5} classify {p.site:<16} {p.slot or '-':<24} {p.asset_id:<22} "
+                f"{p.value} p={p.probability:.2f} [{p.model_id}]"
+            )
+        else:
+            typer.echo(
+                f"{call.seq:>5} draft    {p.site:<16} {'-':<24} {p.asset_id:<22} "
+                f"{len(p.text)} chars [{p.model_id}]"
+            )
+
+
+@models_app.command("calibration")
+def models_calibration(
+    site: Annotated[str, typer.Argument(help="Call site, e.g. resolve_refs.")],
+    semantic: SemanticPath = None,
+    classifier: ClassifierChoice = "keyword",
+    labels: Annotated[Path | None, typer.Option(help="Labeled YAML. Default: bundled.")] = None,
+    log_dir: Annotated[Path, typer.Option(help="Where labeled predictions accumulate.")] = Path(
+        ".veena/calibration"
+    ),
+) -> None:
+    """Run the labeled set through a classifier and print the reliability table."""
+    import yaml
+
+    from veena.models import CalibrationLog, CalibrationRecord, calibration_report, closed_set
+    from veena.resolver import SlotContext
+
+    if site != "resolve_refs":
+        raise _fail(VeenaError(f"no labeled set for site {site!r}; only resolve_refs exists yet"))
+    model = load_semantic_model(_semantic_path(semantic))
+    path = labels or Path(str(files("veena.scenario") / "labels" / "resolve_refs.yaml"))
+    entries = yaml.safe_load(path.read_text())
+    clf = _classifier(classifier)
+    options_by_slot = {
+        "population.entity": {e.name: e.description or e.name for e in model.entities},
+        "measures.calculation": {c.name: c.description or c.name for c in model.calculations},
+    }
+    log = CalibrationLog(log_dir / f"{site}.jsonl")
+    records = []
+    for entry in entries:
+        slot = str(entry["slot"])
+        options = options_by_slot[slot]
+        enum = closed_set(sorted(options))
+        result = clf.classify(
+            SlotContext(slot=slot, text=str(entry["text"]), option_descriptions=options), enum
+        )
+        record = CalibrationRecord(
+            site=site,
+            slot=slot,
+            model_id=result.model_id,
+            predicted=result.value.value,
+            expected=str(entry["expected"]),
+            probability=result.probability,
+        )
+        log.append(record)
+        records.append(record)
+    typer.echo(calibration_report(site, tuple(records)).render())

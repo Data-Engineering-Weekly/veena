@@ -50,3 +50,15 @@ class CoordinationError(VeenaError):
 
 class VerificationError(VeenaError):
     """Verification could not build its checks."""
+
+
+class ModelNotConfiguredError(VeenaError):
+    """A model adapter was asked to run without the credentials or endpoint it needs."""
+
+
+class ModelError(VeenaError):
+    """A model adapter received an answer it cannot use."""
+
+
+class ResolutionError(VeenaError):
+    """The resolver could not proceed with a request."""

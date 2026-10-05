@@ -418,3 +418,135 @@ Build a scenario with only 60 days of history and request 90 days. The engine op
 customer_spend_90d@1 needs 90 days of purchases history from 2026-07-03, but the oldest record is 2026-08-02... How should the engine proceed?
   alternatives: accept_shorter_history, load_more_history, abandon_request
 ```
+
+## Walkthrough, continued: a request in plain words
+
+Until now every request arrived as a spec file. The engine can also take the consumer's words. Resolution uses a classifier to pick each requirement from the closed sets the semantic model defines, so it cannot invent a definition. Numbers come from the text. Anything the text leaves unstated comes from workspace policy and says so.
+
+```bash
+uv run veena asset request --consumer app:sales --asset-id customer_spend_30d --threshold 0.6 \
+  --text "Return one row per customer with their spending over the previous 30 complete calendar days in UTC. Include customers with no qualifying purchases. Reflect new data within 5 minutes."
+```
+
+```
+resolved customer_spend_30d@1; registry at revision 7
+  population.entity <- message:m1
+  measures.calculation <- message:m1
+  measures.aggregation <- policy:approved_calculations_are_additive@1
+  identity_policy <- message:m1
+  window.complete_calendar_days <- message:m1
+  window.timezone <- message:m1
+  population.include_inactive <- message:m1
+  service.incorporate_within <- message:m1
+  service.access_policy <- policy:workspace_defaults@1
+  service.budget_policy <- policy:workspace_defaults@1
+```
+
+Every requirement names where it came from. The two policy lines are the terms the request did not state. The default classifier is the offline keyword baseline, which is why `--threshold 0.6` appears: its probabilities are word-overlap scores, not calibrated, and the calibration report below says so. With `--classifier claude` or `--classifier jev` the default threshold of 0.8 applies.
+
+### When the request is ambiguous
+
+The semantic model has two approved household definitions. A request that says "household" without choosing one gets a question, not a guess.
+
+```bash
+uv run veena asset request --consumer agent:crm --asset-id household_spend_90d --threshold 0.6 \
+  --text "household spending over the previous 90 complete calendar days"
+```
+
+```
+question household_spend_90d_q1 on population.entity:
+  agent:crm asked for household_spend_90d: "household spending over the previous 90 complete calendar days". The engine cannot settle population.entity. Choose one of: household_by_billing, household_by_residence, customer.
+  - household_by_billing: household_by_billing (p=0.50): Groups customers whose billing accounts are linked.; needs households_by_billing; 129 groups over 200 rows; could reuse nothing active
+  - household_by_residence: household_by_residence (p=0.50): Groups customers who share a primary residence address.; needs households_by_residence; 99 groups over 200 rows; could reuse nothing active
+  - customer: customer (p=0.00): One row per registered customer, the individual account holder.; needs customers; 200 groups over 200 rows; could reuse nothing active
+answer with: veena question answer household_spend_90d_q1 --select <alternative>
+```
+
+Each alternative carries evidence: the probability the classifier gave it, its definition, the source it needs, how it groups the 200 customers in the scenario, and which active assets it could reuse. The prose is a template here. With `--drafter claude` a model phrases it, and the stored question keeps the structured alternatives beside the prose either way.
+
+The owner answers, and the answer has a scope.
+
+```bash
+uv run veena question answer household_spend_90d_q1 --select household_by_residence \
+  --rationale "support groups by where people live" --actor user:ananth
+uv run veena asset resolve household_spend_90d --threshold 0.6
+```
+
+```
+question household_spend_90d_q2 on identity_policy:
+  ...
+  - define_identity_policy: no identity policy attaches purchases to semantic:household_by_residence@1
+  - choose_different_entity: known identity policies: customer_identity_point_in_time@2 -> semantic:customer@1
+  - abandon_request: a new policy needs a mapping source with validity columns for household_id
+```
+
+The entity is settled by the decision and will not be asked again for this asset. The next gap is real: nothing in the semantic model says how a purchase attaches to a household. The engine records that as a question for the owner instead of inventing a join. Decisions scoped `--scope workspace` apply to every later request, but only when recorded under a role authority such as `role:data_owner`.
+
+### Looking at what the models said
+
+```bash
+uv run veena models calls
+```
+
+```
+    2 classify screen_request   -                        customer_spend_30d     benign p=0.33 [keyword]
+    3 classify resolve_refs     population.entity        customer_spend_30d     customer p=0.60 [keyword]
+    4 classify resolve_refs     measures.calculation     customer_spend_30d     purchase_amount_usd p=1.00 [keyword]
+    5 classify judge_draft      -                        customer_spend_30d     match p=0.50 [keyword]
+```
+
+Four calls per resolved request: a screen for injection, one pick per ref slot, and a judge of the assembled draft. Each is an event with the model id, the input hash, the value, and the probability. The keyword baseline abstains on the screen and the judge with a uniform probability, which is why the injection example in `tests/test_resolver.py` uses a scripted classifier: screening only works with a real one.
+
+### The article's fragment
+
+```bash
+uv run veena asset show customer_spend_30d --format yaml
+```
+
+```yaml
+asset_id: customer_spend_30d
+spec_version: 1
+requirements:
+  population.entity:
+    ref: semantic:customer@1
+    source: message:m1
+  measures.calculation:
+    ref: semantic:purchase_amount_usd@4
+    source: message:m1
+  window.complete_calendar_days:
+    ref: '30'
+    source: message:m1
+  service.access_policy:
+    ref: policy:workspace_access@1
+    source: policy:workspace_defaults@1
+  ...
+```
+
+After activation the fragment also carries `change_proposal_ref`, `verification_ref`, and `deployment_ref`.
+
+### Is the classifier honest about its confidence?
+
+```bash
+uv run veena models calibration resolve_refs
+```
+
+```
+calibration of resolve_refs (keyword): 10 labeled predictions, accuracy 1.00, expected calibration error 0.21
+  stated         count  mean stated  observed    gap
+  0.4 to 0.6          3         0.60      1.00  -0.40
+  0.6 to 0.8          3         0.69      1.00  -0.31
+  0.8 to 1.0          4         1.00      1.00  +0.00
+```
+
+The bundled labeled set is small, and on it the keyword baseline is right every time but underconfident below 0.8. A threshold of 0.8 would ask a person on six of ten requests it would have answered correctly. That is the number to beat with `--classifier claude` or `--classifier jev`, and the reason thresholds live in policy rather than code. Labeled predictions accumulate under `.veena/calibration/`.
+
+### Model adapters
+
+| Flag | Needs | What it is |
+|---|---|---|
+| `--classifier keyword` | nothing | Word overlap between the request and each option's name and description. Deterministic. Abstains on verdicts. |
+| `--classifier claude` | `ANTHROPIC_API_KEY` or `ant auth login` | Claude with a structured output schema whose `value` field is the closed set. Model id from `VEENA_CLAUDE_MODEL`, default `claude-fable-5-1`. |
+| `--classifier jev` | `JEV_BASE_URL`, `JEV_API_KEY` | Posts to an assumed `POST /v1/decide` contract. Jev's API is not public yet; the adapter is one place to correct. |
+| `--drafter claude` | as above | Phrases questions from structured alternatives and evidence. |
+
+No test calls a model. Tests use scripted adapters, and `RecordingClassifier` / `ReplayClassifier` let a real model's answers drive a test offline.

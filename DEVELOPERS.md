@@ -11,7 +11,7 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```
 
-All three checks must pass before a change is done. Current state: 104 tests, 0 lint findings, 0 type errors across 59 files.
+All three checks must pass before a change is done. Current state: 134 tests, 0 lint findings, 0 type errors across 66 files.
 
 Everything runs through `uv`. The `python3` on this machine is not used, and `uv run python -c "..."` replaces any inline snippet.
 
@@ -38,7 +38,8 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 * `veena.overlap` runs subsumption between a new spec and every active spec in both directions, and derives a shared daily spec from two windowed specs that agree on entity, identity policy, access policy, timezone, and re-aggregable measures.
 * `veena.policy` holds `ReorganizationPolicy`: minimum measured benefit, a cap on reorganizations per asset per period, and whether a person must approve.
 * `veena.coordinator` runs the loop: `propose` decides between reading from a provider, creating a shared intermediate, or building direct, and records what it considered; `implement`, `verify`, and `deploy` act on every affected asset, shared asset first. `activate` runs all of it with re-planning up to the repair bound. `deploy` refuses when any affected asset's commitments changed since the proposal opened, and switches every interface in one transaction when the backend can, or one at a time with an `InterfaceSwitched` event each when it cannot. `rollback` repoints interfaces to what the deployment replaced. `approve`, `reject`, and `resume` manage proposals that wait for a person.
-* `veena.models` holds the `Classifier` and `Drafter` protocols with scripted adapters. Phase 2 uses only `Drafter`, and only for the unsupported-step path.
+* `veena.models` holds the two protocols and their adapters. `KeywordClassifier` is the offline baseline and CLI default; it scores word overlap and abstains with a uniform probability on verdict contexts. `ClaudeClassifier` constrains Claude's structured output to the closed set; `ClaudeDrafter` writes prose. `JevClassifier` posts to an assumed HTTP contract behind an injectable transport. `RecordingClassifier` and `ReplayClassifier` capture and replay real answers for offline tests. `calibration.py` turns labeled predictions into a reliability table. `closed_set` builds the enum a classifier must choose from.
+* `veena.resolver` turns a request into a spec, a question, or a refusal. It screens the text, picks each ref slot from a closed set, extracts numbers deterministically, fills unstated service terms from `WorkspaceDefaults`, reuses scoped decisions, judges the assembled draft, and records every model call as an event. Thresholds come from `ResolutionPolicy`.
 * `veena.registry` is the event log and its projections. Two event kinds were added in phase 2: `ImplementationPlanned` and `ImplementationRefreshed`. `VerificationRecorded` now carries structured `CheckResult`s and source progress.
 * `veena.scenario` builds the synthetic workspace and holds the reference SQL that tests compare against.
 * `veena.calendar` computes complete-day window bounds in a named timezone. Both the planner and verification use it; it is arithmetic, not candidate logic.
@@ -63,6 +64,10 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 **Sharing is a measured, gated decision.** The engine builds the shared candidate once to measure fact rows processed per refresh for the current and proposed graphs, then a policy decides. Below the minimum benefit, or over the reorganization cap, the proposal is recorded as rejected with the reason and the engine builds directly. Nothing about the decision comes from a model.
 
 **Consumers read a view; the engine moves the view.** Each implementation is a table named by implementation id. Each asset is a view named by asset id. Rewiring the 30-day asset means building a new table from the daily asset and repointing the view inside the same transaction that publishes the daily and 90-day views.
+
+**A model never sees the whole problem.** The classifier gets a typed context and a closed option set per slot. The drafter gets structured alternatives and evidence with no chosen answer. Neither gets the planner's SQL or verification checks. The resolver assembles the spec; the models only nominate.
+
+**Probabilities are claims until measured.** Every classifier call site keeps a labeled set under `scenario/labels/` and a log under `.veena/calibration/`. `veena models calibration <site>` prints the reliability table. Tune thresholds from that table, not from intuition.
 
 **Deploy is guarded twice.** The coordinator compares the asset's commitments to the set it saw when the proposal opened and raises `RevisionConflictError` if they differ. The store then checks the exact revision on the append. The first guard explains why; the second catches any writer.
 
@@ -115,8 +120,9 @@ The full requirements for each phase, with ids and acceptance tests, live in [pr
 1. **Done.** Registry, spec IR, semantic model, DuckDB scenario, CLI.
 2. **Done.** Deterministic planner, DuckDB backend, independent verification, coordinator. The planner produces the point-in-time join; verification catches the naive one and the coordinator escalates with a question.
 3. **Done.** Overlap proposals: the shared daily asset is derived from two windowed specs, all three are verified, activation is atomic, the 30-day asset is rewired behind its view, and rollback restores it.
-4. **Next.** Request resolution: natural language to spec, with open questions recorded as `QuestionOpened` and answers as `DecisionRecorded`.
-5. Warehouse backends (Snowflake or BigQuery first), the operator view ordered by unmet commitments, and the brakes: freeze, pin, replay.
+4. **Done.** Request resolution: text to spec through a classifier over closed sets, questions with evidence, scoped decision reuse, screening, judging, and a calibration report.
+5. **Next.** Shadow mode: import a dbt manifest, infer specs as questions, classify query history, run subsumption across the graph, and add the Snowflake backend.
+6. Operations: the operator view ordered by unmet commitments, the brakes (freeze, pin, replay), repair of live assets, and graded retirement.
 
 Open questions that would change the design, and what settles each:
 

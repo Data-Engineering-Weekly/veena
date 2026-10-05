@@ -34,6 +34,9 @@ class EventKind(StrEnum):
     DEPLOYMENT_ACTIVATED = "deployment_activated"
     DEPLOYMENT_ROLLED_BACK = "deployment_rolled_back"
     ASSET_RETIRED = "asset_retired"
+    CLASSIFICATION_PRODUCED = "classification_produced"
+    DRAFT_PRODUCED = "draft_produced"
+    REQUEST_REFUSED = "request_refused"
 
 
 class _Payload(BaseModel):
@@ -77,13 +80,55 @@ class CommitmentReleased(_Payload):
 
 
 class QuestionOpened(_Payload):
-    """The engine needs a person to choose a meaning."""
+    """The engine needs a person to choose a meaning.
+
+    `alternatives` are the structured choices. `question` is prose a person reads; it may be
+    drafted by a model and never replaces the alternatives. `evidence` has one entry per
+    alternative. `slot` names the requirement in doubt, when there is one.
+    """
 
     kind: Literal[EventKind.QUESTION_OPENED] = EventKind.QUESTION_OPENED
     question_id: str
     asset_id: str
     question: str
     alternatives: tuple[str, ...] = Field(min_length=2)
+    slot: str = ""
+    consumer: str = ""
+    evidence: tuple[str, ...] = ()
+
+
+class ClassificationProduced(_Payload):
+    """A classifier picked from a closed set. Recorded before the engine acts on it."""
+
+    kind: Literal[EventKind.CLASSIFICATION_PRODUCED] = EventKind.CLASSIFICATION_PRODUCED
+    site: str
+    slot: str
+    asset_id: str
+    model_id: str
+    input_hash: str
+    value: str
+    probability: float = Field(ge=0.0, le=1.0)
+    alternatives: dict[str, float] = Field(default_factory=dict)
+
+
+class RequestRefused(_Payload):
+    """The engine will not resolve a request, and why. The request text stays on record."""
+
+    kind: Literal[EventKind.REQUEST_REFUSED] = EventKind.REQUEST_REFUSED
+    asset_id: str
+    consumer: str
+    reason: str
+
+
+class DraftProduced(_Payload):
+    """A drafter wrote text. Recorded before anyone reads it."""
+
+    kind: Literal[EventKind.DRAFT_PRODUCED] = EventKind.DRAFT_PRODUCED
+    site: str
+    asset_id: str
+    model_id: str
+    input_hash: str
+    text: str
 
 
 class DecisionRecorded(_Payload):
@@ -243,7 +288,10 @@ Payload = Annotated[
     | VerificationRecorded
     | DeploymentActivated
     | DeploymentRolledBack
-    | AssetRetired,
+    | AssetRetired
+    | ClassificationProduced
+    | DraftProduced
+    | RequestRefused,
     Field(discriminator="kind"),
 ]
 

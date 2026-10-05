@@ -126,6 +126,16 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             amount_usd   DECIMAL(12, 2) NOT NULL,
             status       VARCHAR NOT NULL
         );
+        CREATE TABLE households_by_residence (
+            household_id VARCHAR NOT NULL,
+            customer_id  VARCHAR NOT NULL,
+            PRIMARY KEY (household_id, customer_id)
+        );
+        CREATE TABLE households_by_billing (
+            household_id VARCHAR NOT NULL,
+            customer_id  VARCHAR NOT NULL,
+            PRIMARY KEY (household_id, customer_id)
+        );
         """
     )
 
@@ -176,10 +186,34 @@ def _populate(conn: duckdb.DuckDBPyConnection, rng: random.Random, config: Scena
                 status = "refunded" if rng.random() < config.refunded_share else "settled"
                 purchases.append((f"p{len(purchases):06d}", account_id, at, amount, status))
 
+    # Two approved ways to group customers into households. They disagree on purpose, so a
+    # request that says "household" without choosing one is ambiguous.
+    residence = _group(rng, [c[0] for c in customers], prefix="hr", mean_size=2.2)
+    billing = _group(rng, [c[0] for c in customers], prefix="hb", mean_size=1.6)
+
     _bulk_insert(conn, "customers", customers)
     _bulk_insert(conn, "accounts", accounts)
+    _bulk_insert(conn, "households_by_residence", residence)
+    _bulk_insert(conn, "households_by_billing", billing)
     _bulk_insert(conn, "identity_mappings", mappings)
     _bulk_insert(conn, "purchases", purchases)
+
+
+def _group(
+    rng: random.Random, customer_ids: list[str], *, prefix: str, mean_size: float
+) -> list[tuple[str, str]]:
+    shuffled = list(customer_ids)
+    rng.shuffle(shuffled)
+    rows: list[tuple[str, str]] = []
+    index = 0
+    household = 0
+    while index < len(shuffled):
+        size = max(1, int(rng.expovariate(1.0 / mean_size)))
+        for customer_id in shuffled[index : index + size]:
+            rows.append((f"{prefix}{household:05d}", customer_id))
+        index += size
+        household += 1
+    return rows
 
 
 def _bulk_insert(

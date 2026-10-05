@@ -1,6 +1,6 @@
 # Phase 5: Shadow mode on a real warehouse
 
-Status: Planned. Depends on phase 2. Independent of phases 3 and 4, though both make it more useful.
+Status: Next. Depends on phase 2; phases 3 and 4 are done and feed it.
 
 ## Goal
 

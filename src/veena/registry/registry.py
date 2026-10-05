@@ -80,6 +80,8 @@ def _copy_state(state: RegistryState) -> RegistryState:
     copy.decisions = dict(state.decisions)
     copy.proposals = dict(state.proposals)
     copy.implementations = dict(state.implementations)
+    copy.classifications = list(state.classifications)
+    copy.drafts = list(state.drafts)
     copy.verifications = dict(state.verifications)
     copy.deployments = dict(state.deployments)
     return copy

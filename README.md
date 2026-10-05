@@ -14,7 +14,7 @@ Veena is the engine that owns that rewiring.
 
 ## Status
 
-Early build. Phases 1 to 3 are done. These parts exist and are tested:
+Early build. Phases 1 to 4 are done. These parts exist and are tested:
 
 | Part | What it does |
 |---|---|
@@ -28,10 +28,12 @@ Early build. Phases 1 to 3 are done. These parts exist and are tested:
 | Verification | Generates uniqueness, population, reconciliation, and conservation checks from the semantic model. Never reads the candidate's SQL. Grades its evidence. |
 | Coordinator | Propose, implement, verify, deploy. Re-plans up to a bound, then asks a person. Refuses to deploy if a commitment changed. Switches every affected interface in one deployment and can roll it back. |
 | Overlap | Finds which existing asset can serve a new request, or derives a shared daily intermediate that serves two windowed requests. From specs only. |
-| Policy | Minimum measured benefit, a reorganization cap, and optional human approval gate every share proposal. |
+| Policy | Minimum measured benefit, a reorganization cap, and optional human approval gate every share proposal. Thresholds turn classifier probabilities into questions. |
+| Resolver | Turns a request in a consumer's words into a spec, a question, or a refusal. Refs come only from the semantic model's closed sets. Every model call is an event. |
+| Models | Two kinds behind two protocols: a classifier (Jev adapter, Claude adapter, offline keyword baseline) and a drafter (Claude). Record, replay, and a calibration report. |
 | CLI | `veena` wraps all of the above. |
 
-Not built yet, in order: natural-language request resolution with a classifier and a drafter, shadow mode on a real warehouse, and the operator view.
+Not built yet, in order: shadow mode on a real warehouse with dbt import and a Snowflake backend, then the operator view, brakes, repair, and retirement.
 
 ## Quick start
 
@@ -42,6 +44,8 @@ uv run veena asset request src/veena/scenario/specs/customer_spend_30d.yaml --co
 uv run veena asset activate customer_spend_30d
 uv run veena asset request src/veena/scenario/specs/customer_spend_90d.yaml --consumer agent:support
 uv run veena asset activate customer_spend_90d
+uv run veena asset request --consumer agent:crm --asset-id household_spend_90d \
+  --text "household spending over the previous 90 complete calendar days"
 uv run veena asset show customer_spend_30d
 ```
 

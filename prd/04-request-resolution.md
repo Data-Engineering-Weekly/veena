@@ -1,6 +1,6 @@
 # Phase 4: Request resolution
 
-Status: Next. Depends on phase 2, which is done.
+Status: Done, Oct 5 2026. Four items are partial and noted under Evidence.
 
 ## Goal
 
@@ -63,6 +63,30 @@ A third consumer asks for household spending over 90 days. The semantic model ha
   Acceptance: `veena asset show household_spend_90d` prints the conversation in order with actors.
 * **R4.20** The spec fragment in the article renders from the registry: requirement, ref, source for each, plus proposal, verification, and deployment refs.
   Acceptance: `veena asset show --format yaml` prints a document matching the article's shape for the household asset.
+
+## Evidence
+
+* 134 tests pass, 30 of them new in this phase. `ruff check`, `ruff format --check`, and `mypy --strict` are clean across 66 files.
+* The CLI walkthrough in USAGE.md ran on Oct 5 2026 with the offline keyword classifier: the sales request resolved to a spec with provenance on every requirement, the household request opened one question on `population.entity` with evidence per alternative, the answer was recorded with asset scope, and resuming moved the gap to the missing identity policy.
+* R4.2: the outcome type is a closed union of `ResolvedSpec`, `OpenQuestion`, and `Refusal`; `tests/test_resolver.py` covers each branch.
+* R4.3 and R4.11: the classifier's options are a `StrEnum` built from the semantic model, so a scripted answer outside the set raises `ValueError` before the resolver sees it. The Claude adapter's structured output schema carries the same enum, and a value outside it raises `ModelError`.
+* R4.5 and R4.12: a 0.55 versus 0.40 split opens a question at threshold 0.8 and resolves at 0.5. Thresholds live in `ResolutionPolicy`.
+* R4.7: an asset-scoped decision is reused only by the same asset; a workspace-scoped decision is reused by every later request, but only when the deciding authority is a role.
+* R4.9: a request for one-minute freshness against a five-minute policy opens a question offering the feasible value.
+* R4.13: a judge that reports mismatch twice opens a question naming the slots in doubt.
+* R4.14: a scripted screen verdict of injection at 0.9 yields a refusal, a `RequestRefused` event, and the request text on the asset.
+* R4.16: `ClassificationProduced` and `DraftProduced` events carry model id, input hash, output, and probability; `veena models calls` lists them.
+* R4.17: the suite makes no network call. `RecordingClassifier` and `ReplayClassifier` round-trip through JSONL.
+* R4.18: `veena models calibration resolve_refs` runs the bundled labeled set and prints a reliability table. On Oct 5 2026 the keyword baseline scored accuracy 1.00 with expected calibration error 0.21, underconfident in every bin below 0.8. That is the honest baseline a real classifier must beat.
+* R4.20: `veena asset show --format yaml` renders the article's fragment with a ref and a source per requirement.
+
+Partial:
+
+* R4.6 evidence per alternative includes the description, the source table, group counts from the scenario, and reusable active assets. It does not yet show example rows of how each definition groups the same customers.
+* R4.14 screening depends on the classifier. The keyword baseline abstains on verdict contexts with a uniform probability, so it never refuses; the CLI walkthrough shows the injection text resolving to a question instead. Screening is real only with the Claude or Jev adapter, and the scripted test proves the path.
+* The Jev adapter implements an assumed HTTP contract behind an injectable transport, because Jev's API is not public. It raises `ModelNotConfiguredError` without `JEV_BASE_URL` and `JEV_API_KEY` and will be corrected in one place when access arrives.
+* The Claude adapter uses `messages.parse` with a structured output schema and checks `stop_reason` for refusals. It does not enable server-side refusal fallbacks, because the parse helper path does not carry that parameter; a refusal raises `ModelError` and the resolver treats it as a failed call.
+* Window, timezone, freshness, and the inactive-members flag come from deterministic extraction, not the classifier. A request that states none of them gets a question or a policy default, never a guess.
 
 ## Out of scope
 

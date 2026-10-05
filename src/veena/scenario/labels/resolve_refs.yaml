@@ -1,0 +1,32 @@
+# Labeled requests for the resolve_refs call site. Each entry names the slot and the ref a person
+# confirmed as the intended meaning. Used by `veena models calibration resolve_refs`.
+- text: "spending per customer over the previous 30 complete days"
+  slot: population.entity
+  expected: customer
+- text: "spending per customer over the previous 30 complete days"
+  slot: measures.calculation
+  expected: purchase_amount_usd
+- text: "how many purchases each customer made in the last 90 days"
+  slot: measures.calculation
+  expected: purchase_count
+- text: "how many purchases each customer made in the last 90 days"
+  slot: population.entity
+  expected: customer
+- text: "total settled spend for each customer, 7 complete days"
+  slot: measures.calculation
+  expected: purchase_amount_usd
+- text: "count of settled purchases per customer over 60 days"
+  slot: measures.calculation
+  expected: purchase_count
+- text: "household spend grouped by shared residence address, 90 days"
+  slot: population.entity
+  expected: household_by_residence
+- text: "household spend where accounts are linked for billing, 90 days"
+  slot: population.entity
+  expected: household_by_billing
+- text: "purchase count per household by residence over 30 days"
+  slot: population.entity
+  expected: household_by_residence
+- text: "customer spend 30 days"
+  slot: population.entity
+  expected: customer

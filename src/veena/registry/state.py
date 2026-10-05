@@ -14,11 +14,13 @@ from veena.registry.events import (
     AssetRequested,
     AssetRetired,
     BackfillProgressed,
+    ClassificationProduced,
     CommitmentRegistered,
     CommitmentReleased,
     DecisionRecorded,
     DeploymentActivated,
     DeploymentRolledBack,
+    DraftProduced,
     ImplementationPlanned,
     ImplementationRefreshed,
     InterfaceSwitched,
@@ -26,6 +28,7 @@ from veena.registry.events import (
     ProposalOpened,
     ProposalRejected,
     QuestionOpened,
+    RequestRefused,
     SpecResolved,
     VerificationRecorded,
 )
@@ -52,6 +55,9 @@ class Asset(BaseModel):
 
     asset_id: str
     status: AssetStatus
+    requested_by: str = ""
+    request_text: str = ""
+    refused: str = ""
     spec: AssetSpec | None = None
     active_implementation: str | None = None
     commitments: tuple[str, ...] = ()
@@ -87,6 +93,9 @@ class Question(BaseModel):
     asset_id: str
     question: str
     alternatives: tuple[str, ...]
+    slot: str = ""
+    consumer: str = ""
+    evidence: tuple[str, ...] = ()
     decision_id: str | None = None
     seq: int
 
@@ -175,12 +184,23 @@ class Deployment(BaseModel):
     seq: int
 
 
+class ModelCall(BaseModel):
+    """A recorded classifier or drafter call."""
+
+    model_config = ConfigDict(frozen=True)
+
+    seq: int
+    event_payload: ClassificationProduced | DraftProduced
+
+
 class RegistryState:
     """Mutable projection rebuilt by replaying events in order."""
 
     def __init__(self) -> None:
         """Start with nothing projected."""
         self.revision = 0
+        self.classifications: list[ModelCall] = []
+        self.drafts: list[ModelCall] = []
         self.assets: dict[str, Asset] = {}
         self.commitments: dict[str, Commitment] = {}
         self.questions: dict[str, Question] = {}
@@ -207,7 +227,20 @@ class RegistryState:
                 asset = self.assets.get(payload.asset_id)
                 if asset is None:
                     asset = Asset(asset_id=payload.asset_id, status=AssetStatus.REQUESTED)
-                self.assets[payload.asset_id] = _touch(asset, seq)
+                self.assets[payload.asset_id] = _touch(
+                    asset.model_copy(
+                        update={
+                            "requested_by": payload.consumer,
+                            "request_text": payload.request_text,
+                        }
+                    ),
+                    seq,
+                )
+            case RequestRefused():
+                asset = self._asset(payload.asset_id, seq)
+                self.assets[asset.asset_id] = _touch(
+                    asset.model_copy(update={"refused": payload.reason}), seq
+                )
             case SpecResolved():
                 asset = self._asset(payload.spec.asset_id, seq)
                 status = asset.status
@@ -252,8 +285,15 @@ class RegistryState:
                     asset_id=payload.asset_id,
                     question=payload.question,
                     alternatives=payload.alternatives,
+                    slot=payload.slot,
+                    consumer=payload.consumer,
+                    evidence=payload.evidence,
                     seq=seq,
                 )
+            case ClassificationProduced():
+                self.classifications.append(ModelCall(seq=seq, event_payload=payload))
+            case DraftProduced():
+                self.drafts.append(ModelCall(seq=seq, event_payload=payload))
             case DecisionRecorded():
                 question = self._require(self.questions, payload.question_id, "question", seq)
                 if payload.selected not in question.alternatives:

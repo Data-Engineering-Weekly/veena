@@ -46,9 +46,10 @@ src/veena/
   backends/       Backend protocol and the DuckDB backend: render, materialize, publish, measure.
   verification/   Checks generated from spec and semantic model. Never imports the planner.
   coordinator.py  Propose (direct, from provider, or share), implement, verify, deploy, rollback.
+  resolver.py     Request text to spec, question, or refusal. Classifier picks refs; drafter phrases questions.
   overlap.py      Overlap detection and derivation of a shared intermediate, from specs only.
   policy.py       Workspace policies the engine reads before it acts.
-  models/         Classifier and Drafter protocols with scripted adapters.
+  models/         Classifier and Drafter protocols; adapters: keyword (offline), Claude, Jev; record/replay; calibration.
   evidence.py     Grade and CheckResult, shared by verification and the registry.
   calendar.py     Complete-day window arithmetic in a named timezone.
   registry/       Event-sourced registry: events, store, projections.

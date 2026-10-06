@@ -30,6 +30,16 @@ This guide covers the CLI and the two file formats it reads: specifications and 
 | `veena import infer` | Open one inferred draft spec per observed asset as a question. |
 | `veena report duplicates [--propose]` | Find equivalence sets across confirmed specs; record consolidation proposals in shadow. |
 | `veena report usage` | Readers per asset with cadence and class, plus refresh cost. |
+| `veena ops` | The operator view: unmet commitments, affected consumers, recent deployments, what comes next, then lags, brakes, impact. |
+| `veena ops trail COMMITMENT [--narrate]` | Deployment, proposal, verification, specification, decisions for one commitment, each with actor and authority. |
+| `veena ops freeze|unfreeze|pin|unpin|brakes|ack` | The brakes and the impact acknowledgement, each recorded as an event. |
+| `veena asset check ID` | Verify the live interface; on failure triage the cause and repair under policy. |
+| `veena proposal replay ID --at INSTANT` | Rebuild a proposal's implementations at a past position and verify them there. |
+| `veena deployment show ID` | A deployment with the artifacts that reproduce it, and a warning when one has expired. |
+| `veena commitment list|release` | Commitments, and the release that starts retirement. |
+| `veena retire plan|advance` | The next retirement step per asset and why it waits; take the steps. |
+| `veena export lineage` | OpenLineage run events and a W3C PROV document. |
+| `veena scenario drift KIND` | Change the sources after an asset was built, so the next check fails. |
 
 Default locations are under `.veena/` in the current directory and ignored by git:
 
@@ -40,6 +50,7 @@ Default locations are under `.veena/` in the current directory and ignored by gi
 | `calibration/` | Labeled model predictions for `models calibration`. |
 | `semantic.yaml` | The semantic model `import dbt` derives from MetricFlow. |
 | `dbt/` | The bundled manifest and query history that `scenario dbt` writes. |
+| `lineage/` | The two files `export lineage` writes. |
 
 ## Walkthrough: the customer-spend story
 
@@ -661,6 +672,339 @@ refresh cost over the window:
 ```
 
 The sales application reads the table around the clock. The reader class comes from cadence rules, the offline baseline for this call site. The engine proposes a commitment for the observed user because dbt declared the exposure as `exposure:sales_app` and nothing links that name to the warehouse principal `svc_sales_app`. That mapping is an owner's to provide.
+
+## Walkthrough, continued: operating the graph
+
+Everything so far built assets. This part is about running them when something goes wrong, and shrinking the graph when a consumer leaves. Start from the state at the end of the second request: `customer_spend_30d` and `customer_spend_90d` both read `customer_spend_daily`.
+
+```bash
+uv run veena ops --as-of 2026-10-01T00:00:00+00:00
+```
+
+```
+operator view as of 2026-10-01T00:00:00+00:00
+
+unmet commitments
+  none
+
+affected consumers
+  none
+
+recent deployments touching them
+  customer_spend_daily_d1        2026-10-01T00:00:00+00:00 active      customer_spend_daily -> customer_spend_daily__v1__i1, customer_spend_30d -> customer_spend_30d__v1__i2, customer_spend_90d -> customer_spend_90d__v1__i1 by engine (policy:routine_activation@1)
+  customer_spend_30d_d1          2026-10-01T00:00:00+00:00 active      customer_spend_30d -> customer_spend_30d__v1__i1 by engine (policy:routine_activation@1)
+
+what the engine proposes next
+  nothing open
+
+lag per asset and source (source lag | incorporation lag)
+  customer_spend_30d         purchases                1.3h |         0s
+  customer_spend_90d         purchases                1.3h |         0s
+  customer_spend_daily       purchases                1.3h |         0s
+
+active brakes
+  none
+```
+
+The four questions come first and in that order, because that is the order an on-call engineer asks them. Everything is computed from events. The lag table keeps two numbers apart: the source is 1.3 hours behind the instant, which is the source's doing, and the assets have incorporated everything the source holds, which is the engine's doing. When a scenario database is present, `veena ops` records the source positions it observed before it computes the view, so the freshness condition rests on an event too.
+
+A commitment is unmet under four conditions, each computed from events: the asset incorporated less than the source holds by more than the commitment's bound; its last verification failed; its interface columns changed while the commitment marked them stable; its last refresh processed more fact rows than the commitment's ceiling.
+
+### A source changes under a live asset
+
+Move one account to another customer, the way identity teams do, and check the 90-day asset.
+
+```bash
+uv run veena scenario drift mapping_change
+uv run veena asset check customer_spend_90d --as-of 2026-10-01T00:00:00+00:00 --min-probability 0.9
+```
+
+```
+account a00088 moved from c00099 to c00000 in identity_mappings
+  ok   unique_grain               [structural] one row per customer_id
+  ok   population_preserved       [structural] every customer in customers appears exactly once
+  FAIL reconcile_spend_usd        [reconciliation] spend_usd equals SUM(purchase_amount_usd@4) attributed by customer_identity_point_in_time@2, per customer_id
+       2 keys differ, total discrepancy 10237.34; c00000: got 686.75, expected 5805.42, c00099: got 5118.67, expected 0.00
+  ok   conserve_spend_usd         [reconciliation] total spend_usd equals SUM(purchase_amount_usd@4) over purchases in the window, so every fact counts exactly once
+       uncertainty: facts whose key maps to no entity in the window would be missing from both sides of a per-entity reconciliation; this check catches them
+customer_spend_90d_live1 failed; triage identity_mapping_change p=0.75, strategy escalate [rules]
+opened question customer_spend_90d_q1; the commitment is degraded
+```
+
+Three things happened. The live check ran the same generated checks as activation did, against the interface consumers read, and recorded a `LiveVerificationRecorded`. The failure was triaged: a classifier saw the structured evidence, never the SQL, and said `identity_mapping_change` at 0.75. The default classifier is the rule baseline, and the calibration report below says what its probabilities are worth. Then the repair policy decided. With `--min-probability 0.9` the probability is below the bar, so the policy escalates: one question, no repair attempt, and the commitment is marked degraded. The view now says so.
+
+```bash
+uv run veena ops --as-of 2026-10-01T00:00:00+00:00
+```
+
+```
+unmet commitments
+  customer_spend_90d:agent:support   verification [degraded] customer_spend_90d_live1 failed: reconcile_spend_usd: 2 keys differ, total discrepancy 10237.34; c00000: got 686.75, expected 5805.42, c00099: got 5118.67, expected 0.00
+
+affected consumers
+  agent:support            customer_spend_90d:agent:support
+
+recent deployments touching them
+  customer_spend_daily_d1        2026-10-01T00:00:00+00:00 active      customer_spend_daily -> customer_spend_daily__v1__i1, customer_spend_30d -> customer_spend_30d__v1__i2, customer_spend_90d -> customer_spend_90d__v1__i1 by engine (policy:routine_activation@1)
+
+what the engine proposes next
+  question customer_spend_90d_q1 (general): reconcile_spend_usd failed on customer_spend_90d (customer_spend_90d__v1__i1): 2 keys differ, total discrepancy 10237.34; ... triage identity_mapping_change p=0.75, strategy escalate. No repair was attempted: policy:repair@1 escalates identity_mapping_change at p=0.75. Alternatives tried: none. How should the engine proceed?
+
+degraded assets
+  customer_spend_90d: consumers read customer_spend_90d__v1__i1; last verified customer_spend_90d__v1__i1 at source position purchases 2026-09-30T22:44:24+00:00
+...
+```
+
+Consumers keep reading the last verified implementation, and the view states the source position it was verified at. Follow the trail from the unmet commitment.
+
+```bash
+uv run veena ops trail customer_spend_90d:agent:support
+```
+
+```
+deployment
+  customer_spend_daily_d1 (active) at 2026-10-01T00:00:00+00:00 by engine (policy:routine_activation@1); assumed revision 12
+  customer_spend_daily -> customer_spend_daily__v1__i1 (replaced nothing)
+  customer_spend_30d -> customer_spend_30d__v1__i2 (replaced customer_spend_30d__v1__i1)
+  customer_spend_90d -> customer_spend_90d__v1__i1 (replaced nothing)
+proposal
+  customer_spend_daily_p1 (share, activated) by engine (policy:routine_activation@1): create customer_spend_daily@1 and serve customer_spend_30d@1 and customer_spend_90d@1 from it
+  change: create customer_spend_daily@1 with 90 days of history
+  change: rewire customer_spend_30d@1 to read customer_spend_daily
+  change: create customer_spend_90d@1 reading customer_spend_daily
+  decided: benefit 881 rows >= minimum 1 under policy:reorganization@1
+verification
+  customer_spend_daily_p1_v3 (passed, grade reconciliation) by engine (policy:routine_activation@1): 4/4 checks
+  customer_spend_90d_live1 live (failed) at 2026-10-01T00:00:00+00:00 by engine (policy:routine_activation@1)
+  FAIL reconcile_spend_usd: 2 keys differ, total discrepancy 10237.34; c00000: got 686.75, expected 5805.42, c00099: got 5118.67, expected 0.00
+specification
+  customer_spend_90d@1 resolved by engine (request:agent:support): one row per semantic:customer@1, identity semantic:customer_identity_point_in_time@2
+  population.entity <- message:m2
+  window.complete_calendar_days <- message:m2
+  measures.spend_usd.calculation <- policy:approved_spending_semantics@4
+  identity_policy <- policy:approved_spending_semantics@4
+decisions
+  none recorded
+```
+
+Five sections, in order, each line naming who acted and under what authority. `--narrate` adds prose written by the drafter from exactly this structured trail and records it as a `DraftProduced` event; with `--drafter none` the command says no drafter is configured and the trail above is complete.
+
+### Pin, repair, release
+
+The on-call engineer pins the 30-day asset to the implementation that was good before the rewiring, lets the engine repair, then releases the pin.
+
+```bash
+uv run veena ops pin customer_spend_30d customer_spend_30d__v1__i1 --reason "known good while the daily asset is repaired"
+uv run veena asset check customer_spend_90d --as-of 2026-10-01T00:00:00+00:00
+```
+
+```
+pinned customer_spend_30d to customer_spend_30d__v1__i1
+  ...
+customer_spend_90d_live2 failed; triage identity_mapping_change p=0.75, strategy re_plan_join [rules]
+verification of customer_spend_daily:
+  ok   ...
+verification of customer_spend_30d:
+  ok   ...
+verification of customer_spend_90d:
+  ok   ...
+activated customer_spend_90d via customer_spend_daily_d2 (repair) after 1 attempt(s); grade reconciliation; registry at revision 48
+```
+
+With the default bar of 0.7 the same triage selects `re_plan_join`. The 90-day asset reads the daily asset, so the repair rebuilds the daily asset first and every dependent after it, verifies all three, and deploys them in one deployment. The 30-day asset's interface did not move: it is pinned, and the deployment record says where it should go when the pin is released.
+
+```bash
+uv run veena ops brakes
+uv run veena ops unpin customer_spend_30d --reason "repair verified"
+```
+
+```
+pin    customer_spend_30d              0.0 days  by user:oncall (role:operator)  to customer_spend_30d__v1__i1: known good while the daily asset is repaired
+unpinned customer_spend_30d; interface at customer_spend_30d__v1__i3
+```
+
+`veena ops brakes` is the weekly report: every freeze and pin with its age, so a brake does not quietly become permanent.
+
+### Freeze
+
+```bash
+uv run veena ops freeze customer_spend_daily --subgraph --reason "quarter close"
+uv run veena ops --as-of 2026-10-01T00:00:00+00:00
+uv run veena ops unfreeze customer_spend_daily
+```
+
+```
+frozen customer_spend_daily and its dependents
+...
+active brakes
+  freeze customer_spend_daily       age       0s by user:oncall (role:operator) asset and dependents: quarter close
+unfrozen customer_spend_daily
+```
+
+A freeze stops reorganization of an asset and, with `--subgraph`, of everything that reads it. A later overlapping request builds directly, and the share proposal it would have made is recorded and rejected with a reason that names the freeze, who applied it, and when. A repair proposal touching a frozen asset is recorded and refused the same way. `veena ops unfreeze` ends it.
+
+### Replay a proposal at a past position
+
+```bash
+uv run veena proposal replay customer_spend_daily_p1 --at 2026-09-11T00:00:00+00:00
+```
+
+```
+replay of customer_spend_daily__v1__i1__replay at 2026-09-11T00:00:00+00:00:
+  ok   ...
+replay of customer_spend_30d__v1__i2__replay at 2026-09-11T00:00:00+00:00:
+  ok   ...
+replay of customer_spend_90d__v1__i1__replay at 2026-09-11T00:00:00+00:00:
+  ok   ...
+replay passed; recorded as replay verifications that no deployment can cite
+```
+
+Each implementation is rebuilt with the past instant fixing its window, verified there, and dropped. The results are `VerificationRecorded` events marked `replay`; the registry refuses a deployment that cites one.
+
+### What reproduces a deployment
+
+```bash
+uv run veena deployment show customer_spend_daily_d1 --as-of 2026-12-01T00:00:00+00:00
+```
+
+```
+deployment customer_spend_daily_d1 (active) at 2026-10-01T00:00:00+00:00 by engine (policy:routine_activation@1); proposal customer_spend_daily_p1; assumed revision 12
+  customer_spend_daily -> customer_spend_daily__v1__i1 (replaced nothing)
+  customer_spend_30d -> customer_spend_30d__v1__i2 (replaced customer_spend_30d__v1__i1)
+  customer_spend_90d -> customer_spend_90d__v1__i1 (replaced nothing)
+  backend duckdb v1.5.6
+  source position purchases @ 2026-09-30T22:44:24+00:00
+  rendered SQL for customer_spend_daily: implementation customer_spend_daily__v1__i1
+  rendered SQL for customer_spend_30d: implementation customer_spend_30d__v1__i2
+  rendered SQL for customer_spend_90d: implementation customer_spend_90d__v1__i1
+  WARNING retention source:purchases: expired 2026-10-31T00:00:00+00:00; the deployment can no longer be reproduced from the warehouse
+  retention sql: kept forever
+```
+
+### Rollback and the readers it cannot undo
+
+```bash
+uv run veena deployment rollback customer_spend_daily_d2 --reason "support saw wrong totals" --as-of 2026-10-01T00:00:00+00:00
+uv run veena ops --as-of 2026-10-01T00:00:00+00:00
+uv run veena ops ack customer_spend_daily_d2 --reason "support re-ran its report"
+```
+
+```
+assess impact
+  customer_spend_daily_d2: agent:support, app:sales may have read rolled-back data between 2026-10-01T00:00:00+00:00 and 2026-10-01T00:00:00+00:00 (support saw wrong totals); acknowledge with `veena ops ack customer_spend_daily_d2`
+```
+
+A rollback fixes future reads. The view lists who may have read the rolled-back data and over what interval until an operator records that the impact was assessed.
+
+### Retirement
+
+Months later the sales application drops its commitment.
+
+```bash
+uv run veena commitment release customer_spend_30d:app:sales --reason "sales app retired"
+uv run veena retire plan --as-of 2026-10-01T00:00:00+00:00
+```
+
+```
+customer_spend_30d           next: stop_refresh               -
+customer_spend_90d           waits before retire              1 open commitment(s): agent:support
+customer_spend_daily         waits before retire              read by customer_spend_30d, customer_spend_90d
+```
+
+Retirement weighs four things: explicit commitments, observed reads inside the quiet period, the retention policy, and reconstruction cost. A query count alone never retires anything: an asset with zero queries and an open commitment is never eligible. Each `advance` takes one step per eligible asset.
+
+```bash
+uv run veena retire advance --as-of 2026-10-01T00:00:00+00:00
+uv run veena retire advance --as-of 2026-10-01T00:00:00+00:00
+uv run veena retire plan --as-of 2026-10-01T00:00:00+00:00
+```
+
+```
+customer_spend_30d           stop_refresh           customer_spend_30d__v1__i3 keeps its rows and is no longer refreshed
+customer_spend_30d           replace_with_view      customer_spend_30d__v1__i3 is now a view over customer_spend_daily
+customer_spend_30d           waits before drop_materialization policy:retention@1 keeps the materialization until 2026-11-05T...
+```
+
+The first step is reversible: a new commitment on the asset resumes refreshing. The second replaces the table with a view over the daily asset, so latency rises but nothing is lost. The third waits for the retention policy, 30 days by default, and longer for an asset whose last refresh processed many fact rows.
+
+```bash
+uv run veena retire advance --as-of 2026-11-15T00:00:00+00:00 --until-stable
+uv run veena asset show customer_spend_30d
+```
+
+```
+customer_spend_30d           drop_materialization   3 implementation(s) and the interface are gone; the asset is dormant
+customer_spend_30d           retire                 retired; specification and history stay readable
+request by app:sales: "spend over the previous 30 complete UTC days"
+asset customer_spend_30d  status=retired  impl=-
+spec customer_spend_30d@1: one row per semantic:customer@1, 30 complete days in UTC, identity semantic:customer_identity_point_in_time@2
+  ...
+deployment customer_spend_30d_d1 (active): customer_spend_30d__v1__i1 via customer_spend_30d_p1, verified by customer_spend_30d_p1_v1, assumed revision 3
+...
+```
+
+Only physical work was removed. The daily asset stays active because the support agent still reads through it. Release that commitment too and the outputs retire before the intermediate, which goes last:
+
+```bash
+uv run veena commitment release customer_spend_90d:agent:support
+uv run veena retire advance --as-of 2026-12-20T00:00:00+00:00 --until-stable
+```
+
+```
+customer_spend_90d           stop_refresh           customer_spend_90d__v1__i1 keeps its rows and is no longer refreshed
+customer_spend_90d           replace_with_view      customer_spend_90d__v1__i1 is now a view over customer_spend_daily
+customer_spend_90d           drop_materialization   2 implementation(s) and the interface are gone; the asset is dormant
+customer_spend_daily         stop_refresh           customer_spend_daily__v1__i1 keeps its rows and is no longer refreshed
+customer_spend_90d           retire                 retired; specification and history stay readable
+customer_spend_daily         drop_materialization   2 implementation(s) and the interface are gone; the asset is dormant
+customer_spend_daily         retire                 retired; specification and history stay readable
+```
+
+### Lineage
+
+```bash
+uv run veena export lineage
+```
+
+```
+wrote .veena/lineage/openlineage.json and .veena/lineage/prov.json
+both documents pass the structural checks
+```
+
+The OpenLineage file holds one run event per asset per deployment, with the implementation, its inputs, and the output schema. The PROV file holds assets, specifications, implementations, verifications, and decisions as entities, proposals, deployments, and questions as activities, and actors as agents, with the relations between them. The two share asset and implementation ids. The structural checks cover the rules the export relies on; the published JSON schemas were not fetched.
+
+### Repair policy knobs
+
+| Knob | Default | What it does |
+|---|---|---|
+| `--classifier` on `asset check` | `rules` | Who triages: `rules` (offline baseline), `keyword`, `claude`, `jev`. |
+| `--min-probability` | 0.7 | A triage below this escalates to a person whatever the class. `unknown` always escalates. |
+| `--repair-bound` | 2 | Attempts before the engine asks, with the failing check, the magnitude, the triage, and what it tried. |
+| `--keep-days` on `retire` | 30 | Days a table is kept after its last commitment ends before it may be dropped. |
+
+The cause classes are `source_lag`, `identity_mapping_change`, `schema_drift`, `late_corrections`, `calculation_drift`, and `unknown`. The default table maps the first to `wait_for_source`, the second to `re_plan_join`, the fourth to `rebuild_with_lookback`, and the rest to `escalate`. Check what the rule baseline's probabilities are worth:
+
+```bash
+uv run veena models calibration triage_failure --classifier rules
+```
+
+```
+calibration of triage_failure (rules): 6 labeled predictions, accuracy 0.83, expected calibration error 0.12
+  stated         count  mean stated  observed    gap
+  0.4 to 0.6          1         0.55      1.00  -0.45
+  0.6 to 0.8          4         0.74      0.75  -0.01
+  0.8 to 1.0          1         0.80      1.00  -0.20
+```
+
+Six labeled failures is a start, not a measurement. Real failures labeled by on-call engineers would settle whether a stated 0.75 is right three times in four.
+
+### Drift kinds
+
+| Kind | What changes | What happens next |
+|---|---|---|
+| `mapping_change` | One busy account moves to another customer. | The live check fails per customer; a rebuild repairs it. |
+| `duplicate_mapping` | The account gets a second, overlapping mapping. | Facts count twice, a rebuild counts them twice too, and the engine asks a person. |
+| `late_purchases` | Twenty settled purchases arrive inside the window. | The live check fails; a rebuild repairs it. |
 
 ### Snowflake
 

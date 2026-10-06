@@ -47,7 +47,11 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 * `veena.scenario.dbt_fixture` generates the shoply manifest and query history.
 * `veena.resolver` turns a request into a spec, a question, or a refusal. It screens the text, picks each ref slot from a closed set, extracts numbers deterministically, fills unstated service terms from `WorkspaceDefaults`, consumes scoped decisions once so an answered question is never asked again, judges the assembled draft, and records every model call as an event. Thresholds come from `ResolutionPolicy`.
 * `veena.registry` is the event log and its projections. `events.py` lists every event kind. `state.py` applies them and enforces the invariants: an event that names an unknown asset, moves an asset to an impossible status, or activates an unverified implementation raises, so the log can never hold a state the projections cannot explain. `registry.py` appends with the revision it last saw and retries a conflict a bounded number of times; callers that need to assume a revision pass `expected_revision` themselves. `store.py` has the memory and SQLite stores.
-* `veena.scenario` builds the synthetic workspace and holds the reference SQL that tests compare against.
+* `veena.repair` holds the triage call site: `TriageInput` is the structured evidence for a failed check (never SQL), `RuleTriageClassifier` is the offline baseline, and `triage` applies `RepairPolicy` to the classifier's answer. A test confirms the module never imports the planner or a backend.
+* `veena.ops` computes the operator view from events: the four unmet conditions (freshness, failed verification, schema, cost), affected consumers, recent deployments, proposals and questions, lags, brakes, and rollbacks awaiting assessment. `trail` follows a commitment back through deployment, proposal, verification, specification, and decisions; `narrate` hands that structured trail to a drafter and records the text.
+* `veena.retirement` decides and takes graded steps. `consider` weighs commitments, dependents, pins, freezes, observed reads inside the quiet period, and retention before naming the next step; `Retirer.advance` takes one step per eligible asset, dependents before what they read.
+* `veena.lineage` exports OpenLineage run events per deployment and asset, and a PROV-JSON document of entities, activities, and agents, then checks both against the structural rules the export relies on.
+* `veena.scenario` builds the synthetic workspace, holds the reference SQL that tests compare against, and can apply drift to the sources so a live asset fails its next check.
 * `veena.calendar` computes complete-day window bounds in a named timezone. Both the planner and verification use it; it is arithmetic, not candidate logic.
 * `veena.cli` is the only module that prints.
 
@@ -132,7 +136,9 @@ The full requirements for each phase, with ids and acceptance tests, live in [pr
 3. **Done.** Overlap proposals: the shared daily asset is derived from two windowed specs, all three are verified, activation is atomic, the 30-day asset is rewired behind its view, and rollback restores it.
 4. **Done.** Request resolution: text to spec through a classifier over closed sets, questions with evidence, scoped decision reuse, screening, judging, and a calibration report.
 5. **Done.** Shadow mode on the generated shoply fixture: dbt import, MetricFlow to semantic model, query history to usage and cost, inferred drafts, batch confirmation, the duplicates report, consolidation proposals in shadow, and the Snowflake backend.
-6. **Next.** Operations: the operator view ordered by unmet commitments, the brakes (freeze, pin, replay), repair of live assets, and graded retirement.
+6. **Done.** Operations: the operator view ordered by unmet commitments, the brakes (freeze, pin, replay), live checks with triage and repair through the provider, graded retirement, reproduction artifacts on every deployment, and lineage export.
+
+After phase 6 the open work is the Partial list in each PRD: live Snowflake execution, the real Jev contract, calibration data from real failures, and a usability check of the trail with someone who has never seen the scenario.
 
 Open questions that would change the design, and what settles each:
 

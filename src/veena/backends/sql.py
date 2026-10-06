@@ -101,6 +101,11 @@ class SqlBackend:
         """DDL that creates or repoints a view."""
         return f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {relation}"
 
+    @property
+    def connection(self) -> Any:
+        """The wrapped connection, for scenario tooling that edits sources directly."""
+        return self._conn
+
     def close(self) -> None:
         """Close the connection when it can be closed."""
         close = getattr(self._conn, "close", None)
@@ -161,11 +166,48 @@ class SqlBackend:
 
     def unpublish(self, asset_id: str) -> None:
         """Drop the asset's view if it exists."""
+        self.drop_view(asset_id)
+
+    def drop_view(self, relation: str) -> None:
+        """Drop a view if it exists."""
         try:
-            self._run(f"DROP VIEW IF EXISTS {asset_id}")
+            self._run(f"DROP VIEW IF EXISTS {relation}")
         except Exception as exc:
-            msg = f"unpublish {asset_id}: {exc}"
+            msg = f"drop view {relation}: {exc}"
             raise BackendError(msg) from exc
+
+    def dematerialize(self, implementation_id: str, sql: str) -> None:
+        """Drop the implementation's table and create a view of the same name over its SQL.
+
+        The two statements run in one transaction when the engine allows, so the name is never
+        missing. Interfaces that point at the name keep working; reads now compute on demand.
+        """
+        statements = (
+            f"DROP TABLE IF EXISTS {implementation_id}",
+            f"CREATE VIEW {implementation_id} AS {sql}",
+        )
+        try:
+            if self.atomic_ddl:
+                self._run("BEGIN")
+            for statement in statements:
+                self._run(statement)
+            if self.atomic_ddl:
+                self._run("COMMIT")
+        except Exception as exc:
+            if self.atomic_ddl:
+                self._run("ROLLBACK")
+            msg = f"dematerialize {implementation_id}: {exc}"
+            raise BackendError(msg) from exc
+
+    @property
+    def version(self) -> str:
+        """The engine version as the engine reports it, or `unknown` when it will not say."""
+        try:
+            row = self._run(self.dialect.version_sql()).fetchone()
+        except Exception:
+            # A version is a convenience; the deployment record stands without it.
+            return "unknown"
+        return str(row[0]) if row and row[0] is not None else "unknown"
 
     @property
     def atomic_publish(self) -> bool:

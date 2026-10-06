@@ -1,0 +1,86 @@
+# Labeled failures for the triage_failure call site. Each entry is a TriageInput plus the cause
+# an on-call engineer confirmed afterwards. Used by `veena models calibration triage_failure`.
+- asset_id: customer_spend_30d
+  implementation_id: customer_spend_30d__v1__i1
+  failing_check: reconcile_spend_usd
+  check_grade: reconciliation
+  structural: false
+  detail: "2 keys differ, total discrepancy 10237.34; c00000: got 686.75, expected 5805.42"
+  magnitude: 10237.34
+  source_progress: {purchases: "2026-09-30T22:44:24+00:00"}
+  source_positions: {purchases: "2026-09-30T22:44:24+00:00"}
+  recent_deployments: []
+  semantic_changed: false
+  interface_columns_changed: false
+  uses_mapping_source: true
+  expected: identity_mapping_change
+- asset_id: customer_spend_30d
+  implementation_id: customer_spend_30d__v1__i1
+  failing_check: reconcile_spend_usd
+  check_grade: reconciliation
+  structural: false
+  detail: "1 keys differ, total discrepancy 2100.00"
+  magnitude: 2100.0
+  source_progress: {purchases: "2026-09-30T22:44:24+00:00"}
+  source_positions: {purchases: "2026-10-01T06:00:00+00:00"}
+  recent_deployments: []
+  semantic_changed: false
+  interface_columns_changed: false
+  uses_mapping_source: true
+  expected: source_lag
+- asset_id: customer_spend_90d
+  implementation_id: customer_spend_90d__v1__i1
+  failing_check: conserve_spend_usd
+  check_grade: reconciliation
+  structural: false
+  detail: "difference -5118.67"
+  magnitude: 5118.67
+  source_progress: {purchases: "2026-09-30T22:44:24+00:00"}
+  source_positions: {purchases: "2026-09-30T22:44:24+00:00"}
+  recent_deployments: []
+  semantic_changed: false
+  interface_columns_changed: false
+  uses_mapping_source: true
+  expected: identity_mapping_change
+- asset_id: customer_spend_30d
+  implementation_id: customer_spend_30d__v1__i2
+  failing_check: reconcile_spend_usd
+  check_grade: reconciliation
+  structural: false
+  detail: "200 keys differ, total discrepancy 88123.10"
+  magnitude: 88123.1
+  source_progress: {purchases: "2026-09-30T22:44:24+00:00"}
+  source_positions: {purchases: "2026-09-30T22:44:24+00:00"}
+  recent_deployments: [customer_spend_daily_d1]
+  semantic_changed: true
+  interface_columns_changed: false
+  uses_mapping_source: true
+  expected: calculation_drift
+- asset_id: customer_spend_30d
+  implementation_id: customer_spend_30d__v1__i2
+  failing_check: unique_grain
+  check_grade: proof
+  structural: true
+  detail: "3 keys differ, total discrepancy 0.00"
+  magnitude: 3
+  source_progress: {purchases: "2026-09-30T22:44:24+00:00"}
+  source_positions: {purchases: "2026-09-30T22:44:24+00:00"}
+  recent_deployments: [customer_spend_daily_d1]
+  semantic_changed: false
+  interface_columns_changed: true
+  uses_mapping_source: true
+  expected: schema_drift
+- asset_id: customer_spend_30d
+  implementation_id: customer_spend_30d__v1__i1
+  failing_check: reconcile_spend_usd
+  check_grade: reconciliation
+  structural: false
+  detail: "4 keys differ, total discrepancy 410.00"
+  magnitude: 410.0
+  source_progress: {purchases: "2026-09-30T22:44:24+00:00"}
+  source_positions: {purchases: "2026-09-30T22:44:24+00:00"}
+  recent_deployments: []
+  semantic_changed: false
+  interface_columns_changed: false
+  uses_mapping_source: true
+  expected: late_corrections

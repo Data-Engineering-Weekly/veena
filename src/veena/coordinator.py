@@ -25,34 +25,45 @@ from veena.planner.compile import (
     implementation_id,
     refresh_rule,
 )
-from veena.planner.plan import Implementation, Plan, SourceScan, TimeAttribution
-from veena.policy import ReorganizationPolicy
+from veena.planner.plan import AssetScan, Implementation, Plan, SourceScan, TimeAttribution
+from veena.policy import ReorganizationPolicy, RepairPolicy, RepairStrategy, RetentionPolicy
 from veena.registry.events import (
     AssetRequested,
     BackfillProgressed,
+    ClassificationProduced,
     DeploymentActivated,
     DeploymentRolledBack,
     Event,
+    FreezeApplied,
+    FreezeReleased,
+    ImpactAcknowledged,
     ImplementationPlanned,
     ImplementationRefreshed,
     InterfaceSwitched,
+    LiveVerificationRecorded,
     Payload,
+    PinApplied,
+    PinReleased,
     ProposalApproved,
     ProposalOpened,
     ProposalRejected,
     QuestionOpened,
+    ReproductionArtifacts,
+    SourcePositionObserved,
     SpecResolved,
     VerificationRecorded,
 )
 from veena.registry.state import AssetStatus, ProposalStatus
+from veena.repair import RuleTriageClassifier, Triage, build_triage_input, triage
 from veena.spec.model import TimeBucket
 from veena.spec.subsumption import Operation, SubsumptionResult, Verdict
 from veena.verification.checks import VerificationOutcome, equivalence, verify
 
 if TYPE_CHECKING:
     from veena.backends.protocol import Backend
+    from veena.models.protocol import Classifier
     from veena.registry.registry import Registry
-    from veena.registry.state import Asset, Proposal
+    from veena.registry.state import Asset, Freeze, Proposal
     from veena.semantic.model import SemanticModel
     from veena.spec.model import AssetSpec
 
@@ -89,6 +100,10 @@ class ProposalHandle(BaseModel):
     implementations: dict[str, str] = Field(default_factory=dict)
     verifications: dict[str, str] = Field(default_factory=dict)
     outcomes: dict[str, VerificationOutcome] = Field(default_factory=dict)
+    context: str = Field(
+        default="", description="For a repair: the failing check, its magnitude, and the triage."
+    )
+    strategy: str = ""
 
     @property
     def passed(self) -> bool:
@@ -122,6 +137,21 @@ class ActivationOutcome(BaseModel):
         return self.outcomes.get(self.asset_id)
 
 
+class LiveCheckOutcome(BaseModel):
+    """How a live check ended: passed, waiting on a source, repaired, or escalated."""
+
+    model_config = ConfigDict(frozen=True)
+
+    asset_id: str
+    verification_id: str
+    passed: bool
+    triage: Triage | None = None
+    proposal_id: str | None = None
+    frozen_by: str | None = None
+    activation: ActivationOutcome | None = None
+    question_id: str | None = None
+
+
 class Coordinator:
     """Runs the change loop against one registry, one backend, and one semantic model."""
 
@@ -134,6 +164,9 @@ class Coordinator:
         planner: Planner = default_planner,
         repair_bound: int = 2,
         policy: ReorganizationPolicy | None = None,
+        repair_policy: RepairPolicy | None = None,
+        retention: RetentionPolicy | None = None,
+        classifier: Classifier | None = None,
         actor: str = "engine",
         authority: str = "policy:routine_activation@1",
     ) -> None:
@@ -146,6 +179,10 @@ class Coordinator:
             planner: Produces a plan per attempt for source-fed assets. Tests inject a naive one.
             repair_bound: Maximum verification attempts before escalating with a question.
             policy: When the engine may reorganize. Defaults to `ReorganizationPolicy()`.
+            repair_policy: How a triaged failure turns into a strategy. Defaults to
+                `RepairPolicy()`.
+            retention: How long reproduction artifacts are kept. Defaults to `RetentionPolicy()`.
+            classifier: Triages failed checks. Defaults to the rule baseline.
             actor: Recorded on every event the coordinator writes.
             authority: Recorded on every event the coordinator writes.
         """
@@ -155,6 +192,9 @@ class Coordinator:
         self._planner = planner
         self._repair_bound = max(1, repair_bound)
         self._policy = policy or ReorganizationPolicy()
+        self._repair_policy = repair_policy or RepairPolicy()
+        self._retention = retention or RetentionPolicy()
+        self._classifier: Classifier = classifier or RuleTriageClassifier()
         self._actor = actor
         self._authority = authority
 
@@ -330,12 +370,373 @@ class Coordinator:
                 restored=dict(deployment.replaced),
             ),
             causes=(f"deployment:{deployment_id}",),
+            effective_at=as_of,
         )
         for asset_id, previous in deployment.replaced.items():
+            if asset_id in state.pins:
+                continue
             if previous is None:
                 self._backend.unpublish(asset_id)
             else:
                 self._backend.publish(asset_id, previous)
+
+    def acknowledge_impact(
+        self, deployment_id: str, *, reason: str, actor: str, authority: str
+    ) -> None:
+        """Record that an operator assessed who read bad data before a rollback.
+
+        Raises:
+            CoordinationError: The deployment is unknown, not rolled back, or acknowledged.
+        """
+        deployment = self._registry.state.deployments.get(deployment_id)
+        if deployment is None:
+            msg = f"unknown deployment {deployment_id!r}"
+            raise CoordinationError(msg)
+        if not deployment.rolled_back or deployment.impact_acknowledged:
+            msg = f"deployment {deployment_id} has no impact waiting for assessment"
+            raise CoordinationError(msg)
+        self._append(
+            ImpactAcknowledged(deployment_id=deployment_id, reason=reason),
+            causes=(f"deployment:{deployment_id}",),
+            actor=actor,
+            authority=authority,
+        )
+
+    # ---- brakes -------------------------------------------------------------------------
+
+    def freeze(
+        self,
+        asset_id: str,
+        *,
+        reason: str,
+        actor: str,
+        authority: str,
+        include_dependents: bool = False,
+    ) -> None:
+        """Stop reorganization of an asset. Proposals that touch it are recorded and refused.
+
+        Raises:
+            CoordinationError: The asset is unknown or already frozen.
+        """
+        state = self._registry.state
+        if asset_id not in state.assets:
+            msg = f"unknown asset {asset_id!r}"
+            raise CoordinationError(msg)
+        if asset_id in state.freezes:
+            msg = f"{asset_id} is already frozen"
+            raise CoordinationError(msg)
+        self._append(
+            FreezeApplied(asset_id=asset_id, reason=reason, include_dependents=include_dependents),
+            causes=(f"asset:{asset_id}",),
+            actor=actor,
+            authority=authority,
+        )
+
+    def unfreeze(self, asset_id: str, *, reason: str, actor: str, authority: str) -> None:
+        """End a freeze.
+
+        Raises:
+            CoordinationError: The asset is not frozen.
+        """
+        if asset_id not in self._registry.state.freezes:
+            msg = f"{asset_id} is not frozen"
+            raise CoordinationError(msg)
+        self._append(
+            FreezeReleased(asset_id=asset_id, reason=reason),
+            causes=(f"asset:{asset_id}",),
+            actor=actor,
+            authority=authority,
+        )
+
+    def pin(
+        self, asset_id: str, implementation_id: str, *, reason: str, actor: str, authority: str
+    ) -> None:
+        """Bind the asset's interface to one implementation until the pin is released.
+
+        The pin is recorded before the interface moves, so a crash in between leaves a record
+        that says where the interface should be.
+
+        Raises:
+            CoordinationError: The implementation is not one of the asset's, or a pin exists.
+        """
+        state = self._registry.state
+        asset = state.assets.get(asset_id)
+        if asset is None or implementation_id not in asset.implementations:
+            msg = f"{implementation_id!r} is not an implementation of {asset_id!r}"
+            raise CoordinationError(msg)
+        if asset_id in state.pins:
+            msg = f"{asset_id} is already pinned to {state.pins[asset_id].implementation_id}"
+            raise CoordinationError(msg)
+        self._append(
+            PinApplied(asset_id=asset_id, implementation_id=implementation_id, reason=reason),
+            causes=(f"asset:{asset_id}",),
+            actor=actor,
+            authority=authority,
+        )
+        self._backend.publish(asset_id, implementation_id)
+
+    def unpin(self, asset_id: str, *, reason: str, actor: str, authority: str) -> None:
+        """Release a pin and move the interface to the active implementation.
+
+        Raises:
+            CoordinationError: The asset is not pinned.
+        """
+        state = self._registry.state
+        if asset_id not in state.pins:
+            msg = f"{asset_id} is not pinned"
+            raise CoordinationError(msg)
+        self._append(
+            PinReleased(asset_id=asset_id, reason=reason),
+            causes=(f"asset:{asset_id}",),
+            actor=actor,
+            authority=authority,
+        )
+        active = state.assets[asset_id].active_implementation
+        if active is None:
+            self._backend.unpublish(asset_id)
+        else:
+            self._backend.publish(asset_id, active)
+
+    def replay(self, proposal_id: str, *, at: datetime) -> tuple[VerificationOutcome, ...]:
+        """Rebuild a proposal's implementations at a past position and verify them there.
+
+        Each affected asset's last implementation is rendered with `at` as the instant that fixes
+        its window, into a relation named after it, and verified against the sources at the same
+        instant. Dependents read the replayed provider. Every result is a `VerificationRecorded`
+        marked replay, which a deployment can never cite. The relations are dropped afterwards.
+
+        Raises:
+            CoordinationError: The proposal is unknown or has no implementation.
+        """
+        proposal = self._proposal(proposal_id)
+        state = self._registry.state
+        latest: dict[str, str] = {}
+        for impl_id in proposal.implementations:
+            latest[state.implementations[impl_id].asset_id] = impl_id
+        if not latest:
+            msg = f"proposal {proposal_id} has no implementation to replay"
+            raise CoordinationError(msg)
+        replays: dict[str, str] = {}
+        outcomes: list[VerificationOutcome] = []
+        try:
+            for asset_id, impl_id in latest.items():
+                impl = state.implementations[impl_id]
+                spec = state.assets[asset_id].spec
+                if spec is None:
+                    continue
+                steps = tuple(
+                    s.model_copy(update={"implementation_id": replays[s.implementation_id]})
+                    if isinstance(s, AssetScan) and s.implementation_id in replays
+                    else s
+                    for s in impl.plan.steps
+                )
+                plan = impl.plan.model_copy(update={"steps": steps})
+                relation = f"{impl_id}__replay"
+                sql, _ = self._backend.render(plan, as_of=at)
+                self._backend.materialize(relation, sql, plan)
+                replays[impl_id] = relation
+                outcome = verify(
+                    spec,
+                    self._semantic,
+                    relation,
+                    self._backend.execute,
+                    as_of=at,
+                    dialect=self._backend.dialect,
+                )
+                count = sum(
+                    1
+                    for v in self._registry.state.verifications.values()
+                    if v.proposal_id == proposal_id
+                )
+                self._append(
+                    VerificationRecorded(
+                        verification_id=f"{proposal_id}_v{count + 1}",
+                        proposal_id=proposal_id,
+                        implementation_id=impl_id,
+                        as_of=at,
+                        grade=outcome.grade,
+                        passed=outcome.passed,
+                        checks=outcome.checks,
+                        uncertainty=outcome.uncertainty,
+                        replay=True,
+                    ),
+                    causes=(f"implementation:{impl_id}",),
+                )
+                outcomes.append(outcome)
+        finally:
+            for relation in replays.values():
+                self._backend.drop(relation)
+        return tuple(outcomes)
+
+    # ---- live checks and repair --------------------------------------------------------
+
+    def observe_sources(self, *, as_of: datetime) -> dict[str, datetime]:
+        """Record the newest position of every source a time rule names."""
+        positions: dict[str, datetime] = {}
+        for rule in self._semantic.time_rules:
+            table = self._semantic.source(rule.source).table
+            bounds = self._backend.source_bounds(table, rule.timestamp_column)
+            if bounds is None or rule.source in positions:
+                continue
+            positions[rule.source] = bounds[1]
+            self._append(
+                SourcePositionObserved(source=rule.source, position=bounds[1], observed_at=as_of),
+                causes=(),
+            )
+        return positions
+
+    def check_live(self, asset_id: str, *, as_of: datetime) -> LiveCheckOutcome:
+        """Verify the interface consumers read, and repair it under policy when a check fails.
+
+        A failure is triaged into a cause class by the classifier; the repair policy maps the
+        class to a strategy. `escalate` opens a question with no attempt. `wait_for_source`
+        records nothing more. The rebuild strategies open a repair proposal and run it within the
+        repair bound. A frozen asset's repair proposal is recorded and refused.
+
+        Raises:
+            CoordinationError: The asset has no implementation to check.
+        """
+        state = self._registry.state
+        asset = state.assets.get(asset_id)
+        impl_id = state.interface_of(asset_id)
+        if asset is None or asset.spec is None or impl_id is None:
+            msg = f"asset {asset_id!r} has no implementation to check"
+            raise CoordinationError(msg)
+        outcome = verify(
+            asset.spec,
+            self._semantic,
+            impl_id,
+            self._backend.execute,
+            as_of=as_of,
+            dialect=self._backend.dialect,
+        )
+        count = sum(1 for v in state.live_verifications.values() if v.asset_id == asset_id)
+        verification_id = f"{asset_id}_live{count + 1}"
+        self._append(
+            LiveVerificationRecorded(
+                verification_id=verification_id,
+                asset_id=asset_id,
+                implementation_id=impl_id,
+                as_of=as_of,
+                grade=outcome.grade,
+                passed=outcome.passed,
+                checks=outcome.checks,
+                source_progress=dict(asset.source_progress),
+                uncertainty=outcome.uncertainty,
+            ),
+            causes=(f"implementation:{impl_id}",),
+        )
+        if outcome.passed:
+            return LiveCheckOutcome(asset_id=asset_id, verification_id=verification_id, passed=True)
+
+        failing = next(c for c in outcome.checks if not c.passed)
+        context = build_triage_input(
+            self._registry.state, self._semantic, asset_id, impl_id, failing, as_of=as_of
+        )
+        result = triage(context, self._classifier, self._repair_policy)
+        self._append(
+            ClassificationProduced(
+                site="triage_failure",
+                slot="cause",
+                asset_id=asset_id,
+                model_id=result.model_id,
+                input_hash=result.input_hash,
+                value=result.cause.value,
+                probability=result.probability,
+                alternatives=result.alternatives,
+            ),
+            causes=(f"verification:{verification_id}",),
+        )
+        summary = (
+            f"{failing.name} failed on {asset_id} ({impl_id}): {failing.detail}; "
+            f"magnitude {context.magnitude:g}; {result.summary()}"
+        )
+        base = LiveCheckOutcome(
+            asset_id=asset_id, verification_id=verification_id, passed=False, triage=result
+        )
+        if result.strategy is RepairStrategy.ESCALATE:
+            question_id = self._question(
+                asset_id,
+                f"{summary}. No repair was attempted: {self._repair_policy.ref} escalates "
+                f"{result.cause} at p={result.probability:.2f}. Alternatives tried: none. "
+                "How should the engine proceed?",
+                (
+                    "allow_repair_attempt",
+                    "revise_definitions",
+                    "accept_degraded",
+                    "abandon_request",
+                ),
+                causes=(f"verification:{verification_id}",),
+            )
+            return base.model_copy(update={"question_id": question_id})
+        if result.strategy is RepairStrategy.WAIT_FOR_SOURCE:
+            return base
+
+        spec = asset.spec
+        proposal_id = self._next_id(asset_id, "p")
+        # An asset that reads a provider is only as right as the provider, so the repair rebuilds
+        # the provider first and every dependent after it, the way a share proposal does.
+        affected: tuple[str, ...] = (asset_id,)
+        providers: dict[str, str] = {}
+        shared: str | None = None
+        changes = [f"rebuild implementation of {spec.ref} ({result.strategy})"]
+        if asset.depends_on:
+            shared = asset.depends_on[0]
+            others = [d for d in state.dependents_of(shared) if d != asset_id]
+            affected = (shared, *others, asset_id)
+            providers = {d: shared for d in (*others, asset_id)}
+            changes = [
+                f"rebuild {shared}, which {spec.asset_id} reads ({result.strategy})",
+                *(f"rebuild {d} on the repaired {shared}" for d in (*others, asset_id)),
+            ]
+        self._append(
+            ProposalOpened(
+                proposal_id=proposal_id,
+                summary=f"repair {spec.ref} after {failing.name} failed: {result.summary()}",
+                changes=tuple(changes),
+                affected_assets=affected,
+                assumed_revision=self._registry.revision,
+                kind_of_change="repair",
+                evidence_required=tuple(f"verification of {a}" for a in affected),
+                shared_asset=shared,
+                dependents=tuple(a for a in affected if a != shared) if shared else (),
+                providers=providers,
+                assumed_active=self._active_map(affected),
+                assumed_commitments=self._commitment_map(affected),
+            ),
+            causes=(f"verification:{verification_id}",),
+        )
+        freeze = next(
+            (f for f in (self._registry.state.frozen_by(a) for a in affected) if f is not None),
+            None,
+        )
+        if freeze is not None:
+            reason = _freeze_reason(freeze.asset_id, freeze)
+            self._append(
+                ProposalRejected(proposal_id=proposal_id, reason=reason),
+                causes=(f"proposal:{proposal_id}",),
+            )
+            return base.model_copy(
+                update={"proposal_id": proposal_id, "frozen_by": freeze.asset_id}
+            )
+        self._append(
+            ProposalApproved(
+                proposal_id=proposal_id,
+                reason=f"{result.strategy} for {result.cause} under {self._repair_policy.ref}",
+            ),
+            causes=(f"proposal:{proposal_id}",),
+        )
+        handle = self.resume(proposal_id, as_of=as_of).model_copy(
+            update={"context": summary, "strategy": result.strategy.value}
+        )
+        activation = self.run(handle)
+        return base.model_copy(
+            update={
+                "proposal_id": proposal_id,
+                "activation": activation,
+                "question_id": activation.question_id,
+            }
+        )
 
     # ---- propose ------------------------------------------------------------------------
 
@@ -357,6 +758,28 @@ class Coordinator:
             msg = f"asset {asset_id!r} is retired"
             raise CoordinationError(msg)
         spec = asset.spec
+        freeze = state.frozen_by(asset_id)
+        if freeze is not None:
+            # The proposal is recorded so the freeze's effect is visible, then refused.
+            proposal_id = self._next_id(asset_id, "p")
+            self._append(
+                ProposalOpened(
+                    proposal_id=proposal_id,
+                    summary=f"implement {spec.ref} directly from approved sources",
+                    changes=(f"create implementation of {spec.ref}",),
+                    affected_assets=(asset_id,),
+                    assumed_revision=self._registry.revision,
+                    assumed_active=self._active_map((asset_id,)),
+                    assumed_commitments=self._commitment_map((asset_id,)),
+                ),
+                causes=(f"asset:{asset_id}",),
+            )
+            reason = _freeze_reason(asset_id, freeze)
+            self._append(
+                ProposalRejected(proposal_id=proposal_id, reason=reason),
+                causes=(f"proposal:{proposal_id}",),
+            )
+            raise PolicyError(reason)
         active = [
             a
             for a in state.assets.values()
@@ -510,6 +933,11 @@ class Coordinator:
         rejection = (
             self._policy_rejection(other.asset_id, benefit, as_of) if benefit is not None else None
         )
+        for frozen in (other.asset_id, shared_id):
+            freeze = self._registry.state.frozen_by(frozen)
+            if freeze is not None:
+                rejection = _freeze_reason(frozen, freeze)
+                break
         if rejection is not None:
             self._append(
                 ProposalRejected(proposal_id=proposal_id, reason=rejection),
@@ -605,6 +1033,11 @@ class Coordinator:
                 spec.asset_id, spec.spec_version, len(asset.implementations) + 1
             )
             progress = self._backend.materialize(impl_id, sql, plan)
+            if provider_id is not None and not progress.positions:
+                # A provider-fed plan has no source scan; it is as fresh as its provider.
+                provider_progress = self._registry.state.assets[provider_id].source_progress
+                progress = progress.model_copy(update={"positions": dict(provider_progress)})
+            rows_processed = self._backend.measure_rows_processed(plan, as_of=handle.as_of)
             self._append(
                 ImplementationPlanned(
                     proposal_id=handle.proposal_id,
@@ -630,6 +1063,7 @@ class Coordinator:
                     as_of=handle.as_of,
                     row_count=progress.row_count,
                     source_progress=progress.positions,
+                    rows_processed=rows_processed,
                 ),
                 causes=(f"implementation:{impl_id}",),
             )
@@ -687,7 +1121,8 @@ class Coordinator:
             )
             checks = list(outcome.checks)
             previous = asset.active_implementation
-            if previous is not None and previous != impl_id:
+            # A repair replaces an implementation that failed; agreeing with it proves nothing.
+            if previous is not None and previous != impl_id and handle.kind_of_change != "repair":
                 checks.append(
                     equivalence(
                         previous,
@@ -787,13 +1222,18 @@ class Coordinator:
                 activated=switches,
                 replaced=replaced,
                 staged=staged,
+                artifacts=self._artifacts(handle, switches),
             ),
             causes=tuple(f"verification:{v}" for v in handle.verifications.values()),
             expected_revision=self._registry.revision,
+            effective_at=handle.as_of,
         )
+        # A pinned interface stays where the operator put it; the deployment is still recorded
+        # so the pin's release knows where to move it.
+        published = {a: i for a, i in switches.items() if a not in state.pins}
         try:
             if staged:
-                for asset_id, impl_id in switches.items():
+                for asset_id, impl_id in published.items():
                     self._backend.publish(asset_id, impl_id)
                     self._append(
                         InterfaceSwitched(
@@ -803,8 +1243,8 @@ class Coordinator:
                         ),
                         causes=(f"deployment:{deployment_id}",),
                     )
-            else:
-                self._backend.publish_many(switches)
+            elif published:
+                self._backend.publish_many(published)
         except BackendError as exc:
             self._append(
                 DeploymentRolledBack(
@@ -826,10 +1266,26 @@ class Coordinator:
                 causes=(f"deployment:{deployment_id}",),
             )
             for asset_id, previous in replaced.items():
-                if previous is not None:
+                if previous is not None and asset_id in published:
                     self._backend.publish(asset_id, previous)
             raise
         return deployment_id
+
+    def _artifacts(self, handle: ProposalHandle, switches: dict[str, str]) -> ReproductionArtifacts:
+        state = self._registry.state
+        positions: dict[str, datetime] = {}
+        for asset_id in handle.assets:
+            positions.update(state.assets[asset_id].source_progress)
+        expires = handle.as_of + timedelta(days=self._retention.source_snapshot_days)
+        retention: dict[str, datetime | None] = {f"source:{s}": expires for s in positions}
+        retention["sql"] = None
+        return ReproductionArtifacts(
+            source_positions=positions,
+            sql_refs=switches,
+            backend=self._backend.name,
+            backend_version=self._backend.version,
+            retention=retention,
+        )
 
     # ---- helpers ------------------------------------------------------------------------
 
@@ -873,10 +1329,13 @@ class Coordinator:
             if not c.passed
         ]
         summary = "; ".join(failed) or "no verification ran"
+        attempts = self._repair_bound + self._extra_attempts(handle.primary)
+        tried = f" Alternatives tried: {attempts} x {handle.strategy}." if handle.strategy else ""
+        context = f" Live failure: {handle.context}." if handle.context else ""
         return self._question(
             handle.primary,
-            f"{len(handle.outcomes) and self._repair_bound} implementation attempt(s) failed "
-            f"verification for {handle.proposal_id}. Last failure: {summary}. "
+            f"{attempts} implementation attempt(s) failed verification for "
+            f"{handle.proposal_id}. Last failure: {summary}.{context}{tried} "
             "How should the engine proceed?",
             ("revise_definitions", "allow_more_attempts", "abandon_request"),
             causes=(f"proposal:{handle.proposal_id}",),
@@ -945,12 +1404,31 @@ class Coordinator:
         return keys
 
     def _append(
-        self, payload: Payload, *, causes: tuple[str, ...], expected_revision: int | None = None
+        self,
+        payload: Payload,
+        *,
+        causes: tuple[str, ...],
+        expected_revision: int | None = None,
+        actor: str | None = None,
+        authority: str | None = None,
+        effective_at: datetime | None = None,
     ) -> int:
-        return self._registry.append(
-            Event(actor=self._actor, authority=self._authority, causes=causes, payload=payload),
-            expected_revision=expected_revision,
+        event = Event(
+            actor=actor or self._actor,
+            authority=authority or self._authority,
+            causes=causes,
+            payload=payload,
         )
+        if effective_at is not None:
+            event = event.model_copy(update={"effective_at": effective_at})
+        return self._registry.append(event, expected_revision=expected_revision)
+
+
+def _freeze_reason(asset_id: str, freeze: Freeze) -> str:
+    return (
+        f"{asset_id} is frozen by {freeze.actor} ({freeze.authority}) since "
+        f"{freeze.applied_at.isoformat()}: {freeze.reason}"
+    )
 
 
 def _usable_provider(result: SubsumptionResult, active: list[Asset]) -> bool:
@@ -965,4 +1443,10 @@ def _usable_provider(result: SubsumptionResult, active: list[Asset]) -> bool:
     return set(result.operations) <= _PROVIDER_OPERATIONS
 
 
-__all__ = ["ActivationOutcome", "Coordinator", "ProposalHandle", "default_planner"]
+__all__ = [
+    "ActivationOutcome",
+    "Coordinator",
+    "LiveCheckOutcome",
+    "ProposalHandle",
+    "default_planner",
+]

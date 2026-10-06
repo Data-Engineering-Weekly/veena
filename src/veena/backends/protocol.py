@@ -78,6 +78,19 @@ class Backend(Protocol):
         """Remove an implementation table or a measurement candidate that is no longer needed."""
         ...
 
+    def drop_view(self, relation: str) -> None:
+        """Remove an implementation that was turned into a view by `dematerialize`."""
+        ...
+
+    def dematerialize(self, implementation_id: str, sql: str) -> None:
+        """Replace an implementation's table with a view of the same name over its SQL."""
+        ...
+
+    @property
+    def version(self) -> str:
+        """The engine version, recorded on every deployment for reproduction."""
+        ...
+
     @property
     def atomic_publish(self) -> bool:
         """Whether `publish_many` switches every interface in one transaction."""

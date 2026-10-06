@@ -28,15 +28,25 @@ from veena.registry.events import (
     DeploymentActivated,
     DeploymentRolledBack,
     DraftProduced,
+    FreezeApplied,
+    FreezeReleased,
+    ImpactAcknowledged,
     ImplementationPlanned,
     ImplementationRefreshed,
     InterfaceSwitched,
+    LiveVerificationRecorded,
+    PinApplied,
+    PinReleased,
     ProposalApproved,
     ProposalOpened,
     ProposalRejected,
     QuestionOpened,
     RefreshCostObserved,
+    ReproductionArtifacts,
     RequestRefused,
+    RetirementStep,
+    RetirementStepTaken,
+    SourcePositionObserved,
     SpecResolved,
     UnmanagedReadObserved,
     UsageObserved,
@@ -46,16 +56,28 @@ from veena.spec.model import AssetSpec
 
 if TYPE_CHECKING:
     from veena.planner.plan import Implementation
+    from veena.registry.events import Event
     from veena.registry.store import StoredEvent
+
+_STEP_ORDER = {
+    RetirementStep.STOP_REFRESH: 1,
+    RetirementStep.REPLACE_WITH_VIEW: 2,
+    RetirementStep.DROP_MATERIALIZATION: 3,
+}
 
 
 class AssetStatus(StrEnum):
-    """Where an asset is in its life."""
+    """Where an asset is in its life.
+
+    `dormant` means the materialization was dropped but the specification, decisions, and
+    history remain and a new commitment can bring it back. `retired` is final.
+    """
 
     REQUESTED = "requested"
     OBSERVED = "observed"
     SPECIFIED = "specified"
     ACTIVE = "active"
+    DORMANT = "dormant"
     RETIRED = "retired"
 
 
@@ -81,10 +103,15 @@ class Asset(BaseModel):
     refused: str = ""
     observed: AssetObserved | None = None
     spec: AssetSpec | None = None
+    spec_actor: str = ""
+    spec_authority: str = ""
     active_implementation: str | None = None
     commitments: tuple[str, ...] = ()
     implementations: tuple[str, ...] = ()
     source_progress: dict[str, datetime] = Field(default_factory=dict)
+    last_refresh_as_of: datetime | None = None
+    rows_processed: int | None = None
+    retirement_step: RetirementStep | None = None
     depends_on: tuple[str, ...] = Field(
         default_factory=tuple, description="Assets the active implementation reads."
     )
@@ -92,7 +119,12 @@ class Asset(BaseModel):
 
 
 class Commitment(BaseModel):
-    """Current view of one commitment."""
+    """Current view of one commitment.
+
+    `interface_columns` is the interface's columns when the commitment was registered, or when
+    the asset first activated afterwards. A stable commitment is unmet when the interface departs
+    from them.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -102,7 +134,11 @@ class Commitment(BaseModel):
     incorporate_within_seconds: int
     correctness_tolerance: float
     schema_stable: bool
+    cost_ceiling_rows: int | None = None
+    interface_columns: tuple[str, ...] = ()
     released: bool = False
+    released_at: datetime | None = None
+    registered_at: datetime
     seq: int
 
 
@@ -121,6 +157,8 @@ class Question(BaseModel):
     draft: dict[str, str] = Field(default_factory=dict)
     draft_probabilities: dict[str, float] = Field(default_factory=dict)
     decision_id: str | None = None
+    actor: str = ""
+    authority: str = ""
     seq: int
 
 
@@ -165,6 +203,9 @@ class Proposal(BaseModel):
     verifications: tuple[str, ...] = ()
     switched: dict[str, str] = Field(default_factory=dict)
     deployment_id: str | None = None
+    actor: str = ""
+    authority: str = ""
+    opened_at: datetime
     seq: int
 
 
@@ -176,11 +217,34 @@ class Verification(BaseModel):
     verification_id: str
     proposal_id: str
     implementation_id: str
+    as_of: datetime
     grade: Grade
     passed: bool
     checks: tuple[CheckResult, ...]
     source_progress: dict[str, datetime]
     uncertainty: str
+    replay: bool = False
+    actor: str = ""
+    authority: str = ""
+    seq: int
+
+
+class LiveVerification(BaseModel):
+    """Evidence recorded against a live interface, outside any proposal."""
+
+    model_config = ConfigDict(frozen=True)
+
+    verification_id: str
+    asset_id: str
+    implementation_id: str
+    as_of: datetime
+    grade: Grade
+    passed: bool
+    checks: tuple[CheckResult, ...]
+    source_progress: dict[str, datetime]
+    uncertainty: str
+    actor: str = ""
+    authority: str = ""
     seq: int
 
 
@@ -197,9 +261,45 @@ class Deployment(BaseModel):
     activated: dict[str, str]
     replaced: dict[str, str | None] = Field(default_factory=dict)
     staged: bool = False
+    artifacts: ReproductionArtifacts | None = None
     rolled_back: bool = False
     rollback_reason: str = ""
+    rolled_back_at: datetime | None = None
+    affected_consumers: tuple[str, ...] = ()
+    interval_start: datetime | None = None
+    interval_end: datetime | None = None
+    impact_acknowledged: bool = False
+    actor: str = ""
+    authority: str = ""
     effective_at: datetime
+    seq: int
+
+
+class Freeze(BaseModel):
+    """An active freeze: reorganization of the asset, and optionally its dependents, is stopped."""
+
+    model_config = ConfigDict(frozen=True)
+
+    asset_id: str
+    reason: str
+    include_dependents: bool
+    actor: str
+    authority: str
+    applied_at: datetime
+    seq: int
+
+
+class Pin(BaseModel):
+    """An active pin: the interface points at one implementation regardless of deployments."""
+
+    model_config = ConfigDict(frozen=True)
+
+    asset_id: str
+    implementation_id: str
+    reason: str
+    actor: str
+    authority: str
+    applied_at: datetime
     seq: int
 
 
@@ -225,7 +325,11 @@ class RegistryState:
         self.proposals: dict[str, Proposal] = {}
         self.implementations: dict[str, Implementation] = {}
         self.verifications: dict[str, Verification] = {}
+        self.live_verifications: dict[str, LiveVerification] = {}
         self.deployments: dict[str, Deployment] = {}
+        self.freezes: dict[str, Freeze] = {}
+        self.pins: dict[str, Pin] = {}
+        self.source_positions: dict[str, SourcePositionObserved] = {}
         self.classifications: list[ModelCall] = []
         self.drafts: list[ModelCall] = []
         self.usage: dict[tuple[str, str], UsageObserved] = {}
@@ -244,7 +348,11 @@ class RegistryState:
         other.proposals = dict(self.proposals)
         other.implementations = dict(self.implementations)
         other.verifications = dict(self.verifications)
+        other.live_verifications = dict(self.live_verifications)
         other.deployments = dict(self.deployments)
+        other.freezes = dict(self.freezes)
+        other.pins = dict(self.pins)
+        other.source_positions = dict(self.source_positions)
         other.classifications = list(self.classifications)
         other.drafts = list(self.drafts)
         other.usage = dict(self.usage)
@@ -252,6 +360,8 @@ class RegistryState:
         other.unmanaged_reads = dict(self.unmanaged_reads)
         other.commitment_proposals = dict(self.commitment_proposals)
         return other
+
+    # ---- derived views ----
 
     def dependents_of(self, asset_id: str) -> tuple[str, ...]:
         """Assets whose active implementation reads `asset_id`."""
@@ -263,6 +373,66 @@ class RegistryState:
             d for d in self.deployments.values() if asset_id in d.activated and not d.rolled_back
         ]
         return max(candidates, key=lambda d: d.seq) if candidates else None
+
+    def frozen_by(self, asset_id: str) -> Freeze | None:
+        """The freeze that stops changes to the asset, directly or through what it reads."""
+        direct = self.freezes.get(asset_id)
+        if direct is not None:
+            return direct
+        seen: set[str] = set()
+        frontier = [asset_id]
+        while frontier:
+            current = frontier.pop()
+            asset = self.assets.get(current)
+            if asset is None:
+                continue
+            for upstream in asset.depends_on:
+                if upstream in seen:
+                    continue
+                seen.add(upstream)
+                freeze = self.freezes.get(upstream)
+                if freeze is not None and freeze.include_dependents:
+                    return freeze
+                frontier.append(upstream)
+        return None
+
+    def interface_of(self, asset_id: str) -> str | None:
+        """The implementation consumers read now: the pin when one is set, else the active one."""
+        pin = self.pins.get(asset_id)
+        if pin is not None:
+            return pin.implementation_id
+        asset = self.assets.get(asset_id)
+        return asset.active_implementation if asset else None
+
+    def latest_live_verification(self, asset_id: str) -> LiveVerification | None:
+        """The newest live check of the asset, passed or failed."""
+        candidates = [v for v in self.live_verifications.values() if v.asset_id == asset_id]
+        return max(candidates, key=lambda v: v.seq) if candidates else None
+
+    def last_verified(self, asset_id: str) -> tuple[str, dict[str, datetime], int] | None:
+        """The newest passing verification of any implementation of the asset.
+
+        Returns:
+            The implementation id, the source progress it was verified at, and the event seq.
+        """
+        asset = self.assets.get(asset_id)
+        if asset is None:
+            return None
+        best: tuple[str, dict[str, datetime], int] | None = None
+        for v in self.verifications.values():
+            if (
+                v.passed
+                and not v.replay
+                and v.implementation_id in asset.implementations
+                and (best is None or v.seq > best[2])
+            ):
+                best = (v.implementation_id, v.source_progress, v.seq)
+        for live in self.live_verifications.values():
+            if live.passed and live.asset_id == asset_id and (best is None or live.seq > best[2]):
+                best = (live.implementation_id, live.source_progress, live.seq)
+        return best
+
+    # ---- apply ----
 
     def apply(self, stored: StoredEvent) -> None:
         """Fold one stored event into the projection.
@@ -320,27 +490,18 @@ class RegistryState:
                 if status in {AssetStatus.REQUESTED, AssetStatus.OBSERVED, AssetStatus.SPECIFIED}:
                     status = AssetStatus.SPECIFIED
                 self.assets[asset.asset_id] = _touch(
-                    asset.model_copy(update={"spec": payload.spec, "status": status}), seq
-                )
-            case CommitmentRegistered():
-                asset = self._asset(payload.asset_id, seq)
-                self._not_retired(asset, seq, "register a commitment on")
-                self._fresh(self.commitments, payload.commitment_id, "commitment", seq)
-                self.commitments[payload.commitment_id] = Commitment(
-                    commitment_id=payload.commitment_id,
-                    asset_id=payload.asset_id,
-                    consumer=payload.consumer,
-                    incorporate_within_seconds=payload.incorporate_within_seconds,
-                    correctness_tolerance=payload.correctness_tolerance,
-                    schema_stable=payload.schema_stable,
-                    seq=seq,
-                )
-                self.assets[asset.asset_id] = _touch(
                     asset.model_copy(
-                        update={"commitments": (*asset.commitments, payload.commitment_id)}
+                        update={
+                            "spec": payload.spec,
+                            "status": status,
+                            "spec_actor": event.actor,
+                            "spec_authority": event.authority,
+                        }
                     ),
                     seq,
                 )
+            case CommitmentRegistered():
+                self._apply_commitment(payload, event.effective_at, seq)
             case CommitmentReleased():
                 commitment = self._require(
                     self.commitments, payload.commitment_id, "commitment", seq
@@ -349,7 +510,7 @@ class RegistryState:
                     msg = f"event {seq}: commitment {commitment.commitment_id} is already released"
                     raise RegistryError(msg)
                 self.commitments[commitment.commitment_id] = commitment.model_copy(
-                    update={"released": True}
+                    update={"released": True, "released_at": event.effective_at}
                 )
                 asset = self._asset(commitment.asset_id, seq)
                 remaining = tuple(c for c in asset.commitments if c != commitment.commitment_id)
@@ -369,6 +530,8 @@ class RegistryState:
                     evidence=payload.evidence,
                     draft=dict(payload.draft),
                     draft_probabilities=dict(payload.draft_probabilities),
+                    actor=event.actor,
+                    authority=event.authority,
                     seq=seq,
                 )
             case DecisionRecorded():
@@ -419,6 +582,9 @@ class RegistryState:
                     providers=dict(payload.providers),
                     assumed_active=dict(payload.assumed_active),
                     assumed_commitments=dict(payload.assumed_commitments),
+                    actor=event.actor,
+                    authority=event.authority,
+                    opened_at=event.effective_at,
                     seq=seq,
                 )
             case ProposalApproved():
@@ -473,10 +639,13 @@ class RegistryState:
                     self.implementations, payload.implementation_id, "implementation", seq
                 )
                 asset = self._asset(impl.asset_id, seq)
-                self.assets[asset.asset_id] = _touch(
-                    asset.model_copy(update={"source_progress": dict(payload.source_progress)}),
-                    seq,
-                )
+                update = {
+                    "source_progress": dict(payload.source_progress),
+                    "last_refresh_as_of": payload.as_of,
+                }
+                if payload.rows_processed is not None:
+                    update["rows_processed"] = payload.rows_processed
+                self.assets[asset.asset_id] = _touch(asset.model_copy(update=update), seq)
             case BackfillProgressed():
                 self._require(
                     self.implementations, payload.implementation_id, "implementation", seq
@@ -494,16 +663,39 @@ class RegistryState:
                     verification_id=payload.verification_id,
                     proposal_id=payload.proposal_id,
                     implementation_id=payload.implementation_id,
+                    as_of=payload.as_of,
                     grade=payload.grade,
                     passed=payload.passed,
                     checks=payload.checks,
                     source_progress=dict(payload.source_progress),
                     uncertainty=payload.uncertainty,
+                    replay=payload.replay,
+                    actor=event.actor,
+                    authority=event.authority,
                     seq=seq,
                 )
                 self.proposals[proposal.proposal_id] = proposal.model_copy(
                     update={"verifications": (*proposal.verifications, payload.verification_id)}
                 )
+            case LiveVerificationRecorded():
+                asset = self._asset(payload.asset_id, seq)
+                self._fresh(self.live_verifications, payload.verification_id, "verification", seq)
+                self._implementation_of(asset, payload.implementation_id, seq)
+                self.live_verifications[payload.verification_id] = LiveVerification(
+                    verification_id=payload.verification_id,
+                    asset_id=payload.asset_id,
+                    implementation_id=payload.implementation_id,
+                    as_of=payload.as_of,
+                    grade=payload.grade,
+                    passed=payload.passed,
+                    checks=payload.checks,
+                    source_progress=dict(payload.source_progress),
+                    uncertainty=payload.uncertainty,
+                    actor=event.actor,
+                    authority=event.authority,
+                    seq=seq,
+                )
+                self.assets[asset.asset_id] = _touch(asset, seq)
             case InterfaceSwitched():
                 proposal = self._require(self.proposals, payload.proposal_id, "proposal", seq)
                 if proposal.status not in {ProposalStatus.APPROVED, ProposalStatus.ACTIVATED}:
@@ -525,11 +717,69 @@ class RegistryState:
                     seq,
                 )
             case DeploymentActivated():
-                self._apply_deployment(payload, event.effective_at, seq)
+                self._apply_deployment(payload, event, seq)
             case DeploymentRolledBack():
-                self._apply_rollback(payload, seq)
+                self._apply_rollback(payload, event.effective_at, seq)
+            case ImpactAcknowledged():
+                deployment = self._require(
+                    self.deployments, payload.deployment_id, "deployment", seq
+                )
+                if not deployment.rolled_back:
+                    msg = (
+                        f"event {seq}: deployment {deployment.deployment_id} was not rolled back; "
+                        "there is no impact to acknowledge"
+                    )
+                    raise RegistryError(msg)
+                if deployment.impact_acknowledged:
+                    msg = f"event {seq}: {deployment.deployment_id} is already acknowledged"
+                    raise RegistryError(msg)
+                self.deployments[deployment.deployment_id] = deployment.model_copy(
+                    update={"impact_acknowledged": True}
+                )
+            case FreezeApplied():
+                asset = self._asset(payload.asset_id, seq)
+                self._not_retired(asset, seq, "freeze")
+                self._fresh(self.freezes, payload.asset_id, "freeze on", seq)
+                self.freezes[payload.asset_id] = Freeze(
+                    asset_id=payload.asset_id,
+                    reason=payload.reason,
+                    include_dependents=payload.include_dependents,
+                    actor=event.actor,
+                    authority=event.authority,
+                    applied_at=event.effective_at,
+                    seq=seq,
+                )
+                self.assets[asset.asset_id] = _touch(asset, seq)
+            case FreezeReleased():
+                self._require(self.freezes, payload.asset_id, "freeze on", seq)
+                del self.freezes[payload.asset_id]
+                self.assets[payload.asset_id] = _touch(self.assets[payload.asset_id], seq)
+            case PinApplied():
+                asset = self._asset(payload.asset_id, seq)
+                self._not_retired(asset, seq, "pin")
+                self._fresh(self.pins, payload.asset_id, "pin on", seq)
+                self._implementation_of(asset, payload.implementation_id, seq)
+                self.pins[payload.asset_id] = Pin(
+                    asset_id=payload.asset_id,
+                    implementation_id=payload.implementation_id,
+                    reason=payload.reason,
+                    actor=event.actor,
+                    authority=event.authority,
+                    applied_at=event.effective_at,
+                    seq=seq,
+                )
+                self.assets[asset.asset_id] = _touch(asset, seq)
+            case PinReleased():
+                self._require(self.pins, payload.asset_id, "pin on", seq)
+                del self.pins[payload.asset_id]
+                self.assets[payload.asset_id] = _touch(self.assets[payload.asset_id], seq)
+            case SourcePositionObserved():
+                self.source_positions[payload.source] = payload
+            case RetirementStepTaken():
+                self._apply_retirement_step(payload, seq)
             case AssetRetired():
                 asset = self._asset(payload.asset_id, seq)
+                self._not_retired(asset, seq, "retire")
                 if asset.commitments:
                     msg = (
                         f"event {seq}: asset {asset.asset_id} still has commitments "
@@ -539,6 +789,15 @@ class RegistryState:
                 dependents = self.dependents_of(asset.asset_id)
                 if dependents:
                     msg = f"event {seq}: asset {asset.asset_id} is still read by {list(dependents)}"
+                    raise RegistryError(msg)
+                if asset.active_implementation is not None:
+                    msg = (
+                        f"event {seq}: asset {asset.asset_id} still serves "
+                        f"{asset.active_implementation}; drop the materialization first"
+                    )
+                    raise RegistryError(msg)
+                if asset.asset_id in self.pins:
+                    msg = f"event {seq}: asset {asset.asset_id} is pinned"
                     raise RegistryError(msg)
                 self.assets[asset.asset_id] = _touch(
                     asset.model_copy(
@@ -568,11 +827,42 @@ class RegistryState:
                 self.commitment_proposals[(payload.asset_id, payload.consumer)] = payload
         self.revision = seq
 
+    # ---- commitments ----
+
+    def _apply_commitment(
+        self, payload: CommitmentRegistered, effective_at: datetime, seq: int
+    ) -> None:
+        asset = self._asset(payload.asset_id, seq)
+        self._not_retired(asset, seq, "register a commitment on")
+        self._fresh(self.commitments, payload.commitment_id, "commitment", seq)
+        columns: tuple[str, ...] = ()
+        if asset.active_implementation is not None:
+            columns = self.implementations[asset.active_implementation].plan.output_columns
+        self.commitments[payload.commitment_id] = Commitment(
+            commitment_id=payload.commitment_id,
+            asset_id=payload.asset_id,
+            consumer=payload.consumer,
+            incorporate_within_seconds=payload.incorporate_within_seconds,
+            correctness_tolerance=payload.correctness_tolerance,
+            schema_stable=payload.schema_stable,
+            cost_ceiling_rows=payload.cost_ceiling_rows,
+            interface_columns=columns,
+            registered_at=effective_at,
+            seq=seq,
+        )
+        update: dict[str, object] = {"commitments": (*asset.commitments, payload.commitment_id)}
+        # A commitment reverses the first retirement step, and brings a dormant asset back to
+        # specified so the coordinator can build it again. Later steps need a new deployment.
+        if asset.retirement_step is RetirementStep.STOP_REFRESH:
+            update["retirement_step"] = None
+        if asset.status is AssetStatus.DORMANT:
+            update["status"] = AssetStatus.SPECIFIED
+            update["retirement_step"] = None
+        self.assets[asset.asset_id] = _touch(asset.model_copy(update=update), seq)
+
     # ---- deployments ----
 
-    def _apply_deployment(
-        self, payload: DeploymentActivated, effective_at: datetime, seq: int
-    ) -> None:
+    def _apply_deployment(self, payload: DeploymentActivated, event: Event, seq: int) -> None:
         proposal = self._require(self.proposals, payload.proposal_id, "proposal", seq)
         self._fresh(self.deployments, payload.deployment_id, "deployment", seq)
         if proposal.status is not ProposalStatus.APPROVED:
@@ -581,9 +871,6 @@ class RegistryState:
                 "approved proposal can be activated"
             )
             raise RegistryError(msg)
-        cited = {**payload.verifications}
-        if payload.verification_id:
-            cited.setdefault("", payload.verification_id)
         for asset_id, implementation in payload.activated.items():
             asset = self._asset(asset_id, seq)
             self._not_retired(asset, seq, "activate")
@@ -603,6 +890,12 @@ class RegistryState:
                 msg = (
                     f"event {seq}: deployment {payload.deployment_id} cites verification "
                     f"{verification.verification_id}, which did not pass"
+                )
+                raise RegistryError(msg)
+            if verification.replay:
+                msg = (
+                    f"event {seq}: deployment {payload.deployment_id} cites replay verification "
+                    f"{verification.verification_id}; a replay never activates anything"
                 )
                 raise RegistryError(msg)
             if verification.proposal_id != proposal.proposal_id:
@@ -626,7 +919,10 @@ class RegistryState:
             activated=dict(payload.activated),
             replaced=dict(payload.replaced),
             staged=payload.staged,
-            effective_at=effective_at,
+            artifacts=payload.artifacts,
+            actor=event.actor,
+            authority=event.authority,
+            effective_at=event.effective_at,
             seq=seq,
         )
         self.proposals[proposal.proposal_id] = proposal.model_copy(
@@ -634,23 +930,29 @@ class RegistryState:
         )
         for asset_id, implementation in payload.activated.items():
             asset = self.assets[asset_id]
-            reads = tuple(
-                d.name
-                for d in self.implementations[implementation].dependencies
-                if d.kind == "asset"
-            )
+            impl = self.implementations[implementation]
+            reads = tuple(d.name for d in impl.dependencies if d.kind == "asset")
             self.assets[asset_id] = _touch(
                 asset.model_copy(
                     update={
                         "active_implementation": implementation,
                         "status": AssetStatus.ACTIVE,
                         "depends_on": reads,
+                        "retirement_step": None,
                     }
                 ),
                 seq,
             )
+            for cid in asset.commitments:
+                commitment = self.commitments[cid]
+                if not commitment.interface_columns:
+                    self.commitments[cid] = commitment.model_copy(
+                        update={"interface_columns": impl.plan.output_columns}
+                    )
 
-    def _apply_rollback(self, payload: DeploymentRolledBack, seq: int) -> None:
+    def _apply_rollback(
+        self, payload: DeploymentRolledBack, effective_at: datetime, seq: int
+    ) -> None:
         deployment = self._require(self.deployments, payload.deployment_id, "deployment", seq)
         if deployment.rolled_back:
             msg = f"event {seq}: deployment {deployment.deployment_id} is already rolled back"
@@ -665,7 +967,14 @@ class RegistryState:
                 )
                 raise RegistryError(msg)
         self.deployments[deployment.deployment_id] = deployment.model_copy(
-            update={"rolled_back": True, "rollback_reason": payload.reason}
+            update={
+                "rolled_back": True,
+                "rollback_reason": payload.reason,
+                "rolled_back_at": effective_at,
+                "affected_consumers": payload.affected_consumers,
+                "interval_start": payload.interval_start,
+                "interval_end": payload.interval_end,
+            }
         )
         for asset_id in deployment.activated:
             asset = self.assets[asset_id]
@@ -685,6 +994,49 @@ class RegistryState:
                 ),
                 seq,
             )
+
+    # ---- retirement ----
+
+    def _apply_retirement_step(self, payload: RetirementStepTaken, seq: int) -> None:
+        asset = self._asset(payload.asset_id, seq)
+        self._not_retired(asset, seq, "retire")
+        if asset.commitments:
+            msg = (
+                f"event {seq}: asset {asset.asset_id} still has commitments "
+                f"{list(asset.commitments)}; retirement needs all of them released"
+            )
+            raise RegistryError(msg)
+        if asset.active_implementation is None:
+            msg = f"event {seq}: asset {asset.asset_id} has no materialization to retire"
+            raise RegistryError(msg)
+        if asset.asset_id in self.pins:
+            msg = f"event {seq}: asset {asset.asset_id} is pinned; release the pin first"
+            raise RegistryError(msg)
+        current = _STEP_ORDER[asset.retirement_step] if asset.retirement_step else 0
+        if _STEP_ORDER[payload.step] <= current:
+            msg = (
+                f"event {seq}: asset {asset.asset_id} is at retirement step "
+                f"{asset.retirement_step}; {payload.step} is not a later step"
+            )
+            raise RegistryError(msg)
+        if payload.step is RetirementStep.REPLACE_WITH_VIEW and not asset.depends_on:
+            msg = (
+                f"event {seq}: asset {asset.asset_id} reads sources directly; only an asset that "
+                "reads another asset can become a view over it"
+            )
+            raise RegistryError(msg)
+        update: dict[str, object] = {"retirement_step": payload.step}
+        if payload.step is RetirementStep.DROP_MATERIALIZATION:
+            dependents = self.dependents_of(asset.asset_id)
+            if dependents:
+                msg = f"event {seq}: asset {asset.asset_id} is still read by {list(dependents)}"
+                raise RegistryError(msg)
+            update |= {
+                "active_implementation": None,
+                "depends_on": (),
+                "status": AssetStatus.DORMANT,
+            }
+        self.assets[asset.asset_id] = _touch(asset.model_copy(update=update), seq)
 
     # ---- helpers ----
 

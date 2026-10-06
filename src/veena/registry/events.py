@@ -42,6 +42,22 @@ class EventKind(StrEnum):
     REFRESH_COST_OBSERVED = "refresh_cost_observed"
     UNMANAGED_READ_OBSERVED = "unmanaged_read_observed"
     COMMITMENT_PROPOSED = "commitment_proposed"
+    FREEZE_APPLIED = "freeze_applied"
+    FREEZE_RELEASED = "freeze_released"
+    PIN_APPLIED = "pin_applied"
+    PIN_RELEASED = "pin_released"
+    LIVE_VERIFICATION_RECORDED = "live_verification_recorded"
+    SOURCE_POSITION_OBSERVED = "source_position_observed"
+    IMPACT_ACKNOWLEDGED = "impact_acknowledged"
+    RETIREMENT_STEP_TAKEN = "retirement_step_taken"
+
+
+class RetirementStep(StrEnum):
+    """The graded steps that remove an asset's physical work. Each is reversible until the last."""
+
+    STOP_REFRESH = "stop_refresh"
+    REPLACE_WITH_VIEW = "replace_with_view"
+    DROP_MATERIALIZATION = "drop_materialization"
 
 
 class _Payload(BaseModel):
@@ -74,6 +90,11 @@ class CommitmentRegistered(_Payload):
     incorporate_within_seconds: int = Field(ge=0)
     correctness_tolerance: float = Field(default=0.0, ge=0.0)
     schema_stable: bool = True
+    cost_ceiling_rows: int | None = Field(
+        default=None,
+        ge=0,
+        description="Most fact rows one refresh may process; None is no ceiling.",
+    )
 
 
 class CommitmentReleased(_Payload):
@@ -310,6 +331,9 @@ class ImplementationRefreshed(_Payload):
     as_of: datetime
     row_count: int = Field(ge=0)
     source_progress: dict[str, datetime]
+    rows_processed: int | None = Field(
+        default=None, ge=0, description="Fact rows the refresh attributed and aggregated."
+    )
 
 
 class VerificationRecorded(_Payload):
@@ -325,6 +349,26 @@ class VerificationRecorded(_Payload):
     checks: tuple[CheckResult, ...]
     source_progress: dict[str, datetime] = Field(default_factory=dict)
     uncertainty: str = ""
+    replay: bool = Field(
+        default=False,
+        description="Ran against inputs at a named past position; never cited by a deployment.",
+    )
+
+
+class ReproductionArtifacts(BaseModel):
+    """What it takes to rebuild a deployment later, and how long each part is kept.
+
+    `retention` maps an artifact name to when it expires; None means it is kept forever. The
+    rendered SQL lives on the implementation records named in `sql_refs`.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_positions: dict[str, datetime]
+    sql_refs: dict[str, str] = Field(description="asset_id -> implementation_id holding the SQL")
+    backend: str
+    backend_version: str
+    retention: dict[str, datetime | None] = Field(default_factory=dict)
 
 
 class DeploymentActivated(_Payload):
@@ -343,6 +387,7 @@ class DeploymentActivated(_Payload):
         default_factory=dict, description="asset_id -> previous implementation_id, or None"
     )
     staged: bool = False
+    artifacts: ReproductionArtifacts | None = None
 
 
 class DeploymentRolledBack(_Payload):
@@ -365,6 +410,82 @@ class AssetRetired(_Payload):
     kind: Literal[EventKind.ASSET_RETIRED] = EventKind.ASSET_RETIRED
     asset_id: str
     reason: str
+
+
+class FreezeApplied(_Payload):
+    """An operator stopped reorganization of an asset, and of its dependents when asked."""
+
+    kind: Literal[EventKind.FREEZE_APPLIED] = EventKind.FREEZE_APPLIED
+    asset_id: str
+    reason: str
+    include_dependents: bool = False
+
+
+class FreezeReleased(_Payload):
+    """The freeze on an asset ended."""
+
+    kind: Literal[EventKind.FREEZE_RELEASED] = EventKind.FREEZE_RELEASED
+    asset_id: str
+    reason: str = ""
+
+
+class PinApplied(_Payload):
+    """An operator bound an asset's interface to one implementation until released."""
+
+    kind: Literal[EventKind.PIN_APPLIED] = EventKind.PIN_APPLIED
+    asset_id: str
+    implementation_id: str
+    reason: str
+
+
+class PinReleased(_Payload):
+    """The interface follows deployments again."""
+
+    kind: Literal[EventKind.PIN_RELEASED] = EventKind.PIN_RELEASED
+    asset_id: str
+    reason: str = ""
+
+
+class LiveVerificationRecorded(_Payload):
+    """Checks ran against an asset's live interface, outside any proposal."""
+
+    kind: Literal[EventKind.LIVE_VERIFICATION_RECORDED] = EventKind.LIVE_VERIFICATION_RECORDED
+    verification_id: str
+    asset_id: str
+    implementation_id: str
+    as_of: datetime
+    grade: Grade
+    passed: bool
+    checks: tuple[CheckResult, ...]
+    source_progress: dict[str, datetime] = Field(default_factory=dict)
+    uncertainty: str = ""
+
+
+class SourcePositionObserved(_Payload):
+    """The newest fact timestamp a source held when the engine looked."""
+
+    kind: Literal[EventKind.SOURCE_POSITION_OBSERVED] = EventKind.SOURCE_POSITION_OBSERVED
+    source: str
+    position: datetime
+    observed_at: datetime
+
+
+class ImpactAcknowledged(_Payload):
+    """An operator assessed who read bad data before a rollback."""
+
+    kind: Literal[EventKind.IMPACT_ACKNOWLEDGED] = EventKind.IMPACT_ACKNOWLEDGED
+    deployment_id: str
+    reason: str
+
+
+class RetirementStepTaken(_Payload):
+    """One graded step toward retirement. Steps happen in order and each is an event."""
+
+    kind: Literal[EventKind.RETIREMENT_STEP_TAKEN] = EventKind.RETIREMENT_STEP_TAKEN
+    asset_id: str
+    step: RetirementStep
+    reason: str
+    implementation_id: str | None = None
 
 
 Payload = Annotated[
@@ -392,7 +513,15 @@ Payload = Annotated[
     | UsageObserved
     | RefreshCostObserved
     | UnmanagedReadObserved
-    | CommitmentProposed,
+    | CommitmentProposed
+    | FreezeApplied
+    | FreezeReleased
+    | PinApplied
+    | PinReleased
+    | LiveVerificationRecorded
+    | SourcePositionObserved
+    | ImpactAcknowledged
+    | RetirementStepTaken,
     Field(discriminator="kind"),
 ]
 

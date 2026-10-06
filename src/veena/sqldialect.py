@@ -47,6 +47,10 @@ class SqlDialect(Protocol):
         """Statements to run once per connection so naive timestamps resolve in UTC."""
         ...
 
+    def version_sql(self) -> str:
+        """A query whose single value is the engine version, for reproduction records."""
+        ...
+
 
 class DuckDBDialect:
     """DuckDB, also the base the SQL backend assumes."""
@@ -80,6 +84,10 @@ class DuckDBDialect:
         """Pin the session zone so naive timestamps are not read in the machine's zone."""
         return ("SET TimeZone = 'UTC'",)
 
+    def version_sql(self) -> str:
+        """DuckDB reports its version through `version()`."""
+        return "SELECT version()"
+
 
 class SnowflakeDialect:
     """Snowflake."""
@@ -112,6 +120,10 @@ class SnowflakeDialect:
     def session_setup(self) -> tuple[str, ...]:
         """Pin the session zone."""
         return ("ALTER SESSION SET TIMEZONE = 'UTC'",)
+
+    def version_sql(self) -> str:
+        """Snowflake reports its version through `CURRENT_VERSION()`."""
+        return "SELECT CURRENT_VERSION()"
 
 
 __all__ = ["DuckDBDialect", "SnowflakeDialect", "SqlDialect"]

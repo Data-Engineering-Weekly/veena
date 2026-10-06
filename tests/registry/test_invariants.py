@@ -22,6 +22,8 @@ from veena.registry import (
     ProposalOpened,
     QuestionOpened,
     Registry,
+    RetirementStep,
+    RetirementStepTaken,
     SpecResolved,
     SqliteEventStore,
     VerificationRecorded,
@@ -264,6 +266,43 @@ def test_deployment_needs_approval_matching_verification_and_spec_version(regist
         )
 
 
+def test_replay_verification_never_activates_anything(registry):
+    activate(registry)
+    registry.append(
+        ev(
+            ProposalOpened(
+                proposal_id="p2",
+                summary="s",
+                changes=("c",),
+                affected_assets=("a_30d",),
+                assumed_revision=0,
+            )
+        )
+    )
+    registry.append(ev(ProposalApproved(proposal_id="p2")))
+    registry.append(ev(ImplementationPlanned(proposal_id="p2", implementation=impl("i2"))))
+    replay = verification("p2_v1", "p2", "i2").model_copy(update={"replay": True})
+    registry.append(ev(replay))
+    assert registry.state.verifications["p2_v1"].replay
+    with pytest.raises(RegistryError, match="replay never activates"):
+        registry.append(
+            ev(
+                DeploymentActivated(
+                    deployment_id="d2",
+                    proposal_id="p2",
+                    verification_id="p2_v1",
+                    assumed_revision=0,
+                    activated={"a_30d": "i2"},
+                )
+            )
+        )
+    assert registry.state.last_verified("a_30d") == (
+        "i1",
+        {},
+        registry.state.verifications["p1_v1"].seq,
+    )
+
+
 def test_open_proposal_cannot_be_activated(registry):
     with pytest.raises(RegistryError, match="is open"):
         activate(registry, approve=False)
@@ -351,7 +390,34 @@ def test_retired_assets_refuse_new_work_and_retirement_checks_dependents(registr
     registry.append(ev(CommitmentReleased(commitment_id="a_30d:app:a")))
     with pytest.raises(RegistryError, match="still read by \\['b_30d'\\]"):
         registry.append(ev(AssetRetired(asset_id="a_30d", reason="unused")))
+    with pytest.raises(RegistryError, match="drop the materialization first"):
+        registry.append(ev(AssetRetired(asset_id="b_30d", reason="unused")))
+    for step in (RetirementStep.STOP_REFRESH, RetirementStep.DROP_MATERIALIZATION):
+        registry.append(ev(RetirementStepTaken(asset_id="b_30d", step=step, reason="unused")))
+    assert registry.state.assets["b_30d"].status is AssetStatus.DORMANT
     registry.append(ev(AssetRetired(asset_id="b_30d", reason="unused")))
+    registry.append(
+        ev(RetirementStepTaken(asset_id="a_30d", step=RetirementStep.STOP_REFRESH, reason="u"))
+    )
+    with pytest.raises(RegistryError, match="is not a later step"):
+        registry.append(
+            ev(RetirementStepTaken(asset_id="a_30d", step=RetirementStep.STOP_REFRESH, reason="u"))
+        )
+    with pytest.raises(RegistryError, match="reads sources directly"):
+        registry.append(
+            ev(
+                RetirementStepTaken(
+                    asset_id="a_30d", step=RetirementStep.REPLACE_WITH_VIEW, reason="unused"
+                )
+            )
+        )
+    registry.append(
+        ev(
+            RetirementStepTaken(
+                asset_id="a_30d", step=RetirementStep.DROP_MATERIALIZATION, reason="unused"
+            )
+        )
+    )
     registry.append(ev(AssetRetired(asset_id="a_30d", reason="unused")))
     assert registry.state.assets["a_30d"].status is AssetStatus.RETIRED
     with pytest.raises(RegistryError, match="retired asset"):

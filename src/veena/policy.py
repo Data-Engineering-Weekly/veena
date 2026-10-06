@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class CauseClass(StrEnum):
+    """The closed set of causes the triage classifier picks from for a failed check."""
+
+    SOURCE_LAG = "source_lag"
+    IDENTITY_MAPPING_CHANGE = "identity_mapping_change"
+    SCHEMA_DRIFT = "schema_drift"
+    LATE_CORRECTIONS = "late_corrections"
+    CALCULATION_DRIFT = "calculation_drift"
+    UNKNOWN = "unknown"
+
+
+class RepairStrategy(StrEnum):
+    """What the engine does about a failure. A policy table maps each cause class to one."""
+
+    RE_PLAN_JOIN = "re_plan_join"
+    REBUILD_WITH_LOOKBACK = "rebuild_with_lookback"
+    WAIT_FOR_SOURCE = "wait_for_source"
+    ESCALATE = "escalate"
 
 
 class ReorganizationPolicy(BaseModel):
@@ -30,6 +51,54 @@ class ReorganizationPolicy(BaseModel):
     max_reorganizations_per_period: int = Field(default=1, ge=0)
     period_days: int = Field(default=30, ge=1)
     require_approval: bool = False
+
+
+class RepairPolicy(BaseModel):
+    """How a triaged failure turns into action. People own the table and the threshold.
+
+    A cause below `min_probability`, or `unknown`, escalates to a person whatever the table says.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ref: str = "policy:repair@1"
+    min_probability: float = Field(default=0.7, ge=0.0, le=1.0)
+    strategies: dict[CauseClass, RepairStrategy] = Field(
+        default_factory=lambda: {
+            CauseClass.SOURCE_LAG: RepairStrategy.WAIT_FOR_SOURCE,
+            CauseClass.IDENTITY_MAPPING_CHANGE: RepairStrategy.RE_PLAN_JOIN,
+            CauseClass.LATE_CORRECTIONS: RepairStrategy.REBUILD_WITH_LOOKBACK,
+            CauseClass.SCHEMA_DRIFT: RepairStrategy.ESCALATE,
+            CauseClass.CALCULATION_DRIFT: RepairStrategy.ESCALATE,
+            CauseClass.UNKNOWN: RepairStrategy.ESCALATE,
+        }
+    )
+
+    def strategy(self, cause: CauseClass, probability: float) -> RepairStrategy:
+        """The strategy for one triage result, applying the threshold and the unknown rule."""
+        if cause is CauseClass.UNKNOWN or probability < self.min_probability:
+            return RepairStrategy.ESCALATE
+        return self.strategies.get(cause, RepairStrategy.ESCALATE)
+
+
+class RetentionPolicy(BaseModel):
+    """How long physical work is kept after the last commitment on an asset ends.
+
+    `quiet_days` is how long observed reads keep an asset from retiring even without a
+    commitment. `keep_materialization_days` gates dropping a table; an asset whose last refresh
+    processed at least `expensive_rows` waits `keep_expensive_days` instead, because rebuilding it
+    costs more. `source_snapshot_days` is how long a deployment's source positions can be
+    reproduced from the warehouse.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ref: str = "policy:retention@1"
+    quiet_days: int = Field(default=30, ge=0)
+    keep_materialization_days: int = Field(default=30, ge=0)
+    expensive_rows: int = Field(default=1_000_000, ge=0)
+    keep_expensive_days: int = Field(default=90, ge=0)
+    source_snapshot_days: int = Field(default=30, ge=0)
 
 
 class WorkspaceDefaults(BaseModel):
@@ -66,4 +135,12 @@ class ResolutionPolicy(BaseModel):
         return self.slot_thresholds.get(slot, self.default_threshold)
 
 
-__all__ = ["ReorganizationPolicy", "ResolutionPolicy", "WorkspaceDefaults"]
+__all__ = [
+    "CauseClass",
+    "ReorganizationPolicy",
+    "RepairPolicy",
+    "RepairStrategy",
+    "ResolutionPolicy",
+    "RetentionPolicy",
+    "WorkspaceDefaults",
+]

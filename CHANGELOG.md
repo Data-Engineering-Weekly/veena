@@ -8,6 +8,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - Phases 1 to 5 of the self-organizing data stack: specification IR and subsumption, semantic model, event-sourced registry with SQLite and Postgres stores, deterministic planner, DuckDB and Snowflake backends, independent verification, coordinator with shared intermediates and rollback, request resolution with classifier and drafter models, dbt and MetricFlow import, query history import, inferred drafts, duplicates report, and the `veena` CLI.
 - A generated e-commerce dbt project, shoply, as the import fixture.
+- Phase 6: the operator view (`veena ops`) with unmet commitments computed from events, the trail per commitment with optional narration, source lag and incorporation lag kept apart, brakes (freeze, pin, replay) as events, live checks with classifier triage and policy-chosen repair through the provider, graded retirement with retention and reconstruction cost, reproduction artifacts on every deployment, and OpenLineage plus W3C PROV export.
+- Scenario drift (`veena scenario drift`) that changes the sources after an asset was built, and a labeled set for the `triage_failure` call site.
 - `veena.sqldialect`, so verification renders SQL for the same engine as the plan.
 - Registry projection invariants: impossible transitions and unknown references are rejected at append time.
 - Optional extras `claude`, `postgres`, and `all`. The core install has no model SDK or Postgres driver.

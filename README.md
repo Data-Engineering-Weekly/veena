@@ -14,7 +14,7 @@ Veena is the engine that owns that rewiring.
 
 ## Status
 
-Early build. Phases 1 to 5 are done. These parts exist and are tested:
+Early build. Phases 1 to 6 are done on the DuckDB scenario. These parts exist and are tested:
 
 | Part | What it does |
 |---|---|
@@ -34,9 +34,14 @@ Early build. Phases 1 to 5 are done. These parts exist and are tested:
 | Importer | Reads a dbt manifest into observed assets and exposure commitments, MetricFlow into a semantic model with gaps as questions, and query history into usage, refresh cost, unmanaged reads, and proposed commitments. Infers a draft spec per asset as a question; confirms batches above a threshold. |
 | Reports | Duplicates: equivalence sets across confirmed specs with owners, consumers, and measured credits, plus consolidation proposals recorded in shadow. Usage: readers per asset with cadence and class. |
 | Snowflake | A second backend behind the same protocol. Renders Snowflake SQL, stages interface switches because its DDL autocommits. Render is tested offline; execution needs a live connection. |
+| Operator view | `veena ops` answers four questions in order: which commitments are unmet, which consumers they affect, which recent deployments touched them, what the engine proposes next. Computed from events, never from a health flag. Source lag and incorporation lag are reported apart. |
+| Brakes | Freeze stops reorganization of an asset or its subgraph; proposals touching it are recorded and refused. Pin binds an interface to a known-good implementation through deployments. Replay re-verifies a proposal at a past source position without activating anything. Every brake is an event with actor and authority. |
+| Repair | A failed live check is triaged by a classifier into a cause class with a probability; a policy table picks the strategy. Repairable causes rebuild through the provider and redeploy within the repair bound; unknown or low-probability causes ask a person with the check, the magnitude, the triage, and what was tried. Consumers keep reading the last verified implementation meanwhile. |
+| Retirement | Graded steps once no commitment, reader, or dependent remains: stop refreshing, replace the table with a view, drop the materialization, retire. Retention policy and reconstruction cost gate the drop. Specification, decisions, and history stay readable forever. |
+| Lineage | `veena export lineage` writes OpenLineage run events and a W3C PROV document linked by asset and implementation ids. Every deployment records what reproduces it: source positions, rendered SQL, backend and version, retention of each. |
 | CLI | `veena` wraps all of the above. |
 
-Not built yet: the operator view, brakes, repair of live assets, and graded retirement. Phase 6.
+Phases 1 to 6 of the plan are built. What remains is listed under each phase's Partial items in [prd/](prd/README.md).
 
 ## Install
 
@@ -65,6 +70,17 @@ uv run veena asset activate customer_spend_90d
 uv run veena asset request --consumer agent:crm --asset-id household_spend_90d \
   --text "household spending over the previous 90 complete calendar days"
 uv run veena asset show customer_spend_30d
+```
+
+Operate it: break a source, let the engine triage and repair, and watch the trail.
+
+```bash
+uv run veena ops
+uv run veena scenario drift mapping_change
+uv run veena asset check customer_spend_90d
+uv run veena ops trail customer_spend_90d:agent:support
+uv run veena commitment release customer_spend_30d:app:sales
+uv run veena retire advance --until-stable
 ```
 
 Shadow mode on a dbt project, using the bundled e-commerce fixture:

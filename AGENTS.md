@@ -33,6 +33,17 @@ Use one name for each concept everywhere: planner, backend, registry, CLI, docs,
 | grade | Strength of evidence: proof, reconciliation, test, sample. |
 | source progress | The newest fact timestamp an implementation has incorporated, per source. |
 | coordinator | Runs propose, verify, deploy for one asset and enforces the revision guard. |
+| live check | Verification of an asset's published interface outside any proposal. A failed live check marks its commitments degraded. |
+| triage | The classifier's cause class and probability for a failed check. A policy table turns it into a repair strategy. |
+| repair | A proposal of kind `repair` that rebuilds an asset, and the provider it reads, after a failed live check. |
+| brake | An operator control the engine obeys: freeze, pin, or replay. Every brake is an event with actor and authority. |
+| freeze | Stops reorganization of an asset, and of its dependents when asked. Proposals touching it are recorded and refused. |
+| pin | Binds an asset's interface to one implementation until released, whatever deployments do. |
+| replay | Verification of a proposal's implementations rebuilt at a past source position. Never cited by a deployment. |
+| source lag | How far a source is behind now. Not the engine's failure. |
+| incorporation lag | How far an asset is behind its source. The engine's to fix. |
+| retirement step | One of stop refresh, replace with view, drop materialization, retire. Each is an event; a dormant asset keeps its specification and history. |
+| operator view | `veena ops`: unmet commitments, affected consumers, recent deployments, proposals next, then lags, brakes, and impact to assess. |
 
 ## Layout
 
@@ -45,7 +56,12 @@ src/veena/
   planner/        Plan model and the deterministic compiler from spec (or spec plus provider) to plan.
   backends/       Backend protocol; SqlBackend base with dialect hooks; DuckDB and Snowflake backends.
   verification/   Checks generated from spec and semantic model. Never imports the planner.
-  coordinator.py  Propose (direct, from provider, or share), implement, verify, deploy, rollback.
+  coordinator.py  Propose (direct, from provider, or share), implement, verify, deploy, rollback,
+                  brakes, replay, live checks, and repair.
+  repair.py       Triage input, the rule baseline classifier, and the policy table lookup. Never imports the planner.
+  ops.py          The operator view, the trail, and narration from the structured trail.
+  retirement.py   Graded retirement with retention and reconstruction cost.
+  lineage.py      OpenLineage and W3C PROV export with structural validation.
   resolver.py     Request text to spec, question, or refusal. Classifier picks refs; drafter phrases questions.
   importer/       dbt manifest, MetricFlow, and query history to observed state; inferred drafts; duplicates report.
   overlap.py      Overlap detection and derivation of a shared intermediate, from specs only.

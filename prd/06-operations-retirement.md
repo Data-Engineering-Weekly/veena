@@ -1,6 +1,6 @@
 # Phase 6: Operations and retirement
 
-Status: Next. Phases 3 and 5 are done.
+Status: Done, Oct 6 2026, on the DuckDB scenario. Four items are partial and noted under Evidence.
 
 ## Goal
 
@@ -80,3 +80,25 @@ A web UI; the operator view is CLI first. Alerting integrations; the view is pol
 * Operators distrust a graph they did not draw. Settled by R6.3's five-step trail and by a usability check: a person who has never seen the scenario traces an injected failure to its decision without help. Record the time it took.
 * Retirement deletes something a quiet consumer needed. Settled by R6.13 and R6.14's graded steps; the first step is reversible by refreshing again.
 * Brakes become permanent and the engine stops reorganizing. Settled by showing brake age in `veena ops` and by a weekly report of frozen and pinned assets.
+
+## Evidence
+
+* **R6.1, R6.4** `tests/test_ops.py::test_view_prints_the_four_sections_first_and_in_order` and `tests/test_cli_ops.py::test_ops_view_has_the_four_sections_then_lags_and_brakes`. The lag table carries two numbers per asset and source.
+* **R6.2** One test per condition in `tests/test_ops.py`: freshness from `SourcePositionObserved`, failed live verification, schema change against a stable commitment, cost above the ceiling. Nothing reads a health flag.
+* **R6.3** `test_trail_has_five_sections_in_order_with_actors`: five sections, each line with actor and authority, under 40 lines for the 90-day commitment after the rewiring.
+* **R6.5 to R6.8** `tests/test_coordinator_brakes.py`: a frozen asset makes the new request build directly and the rejected proposal cites the freeze with actor, authority, and time; a pin holds the interface through a deployment and a rollback until released; replay records verifications marked `replay` that the registry refuses to let a deployment cite (`tests/registry/test_invariants.py::test_replay_verification_never_activates_anything`); `FreezeApplied`, `PinApplied`, and their releases appear in the log and in `veena ops`.
+* **R6.9, R6.9a, R6.9b** `test_mapping_change_fails_the_live_check_then_repairs_under_policy`: a moved identity mapping fails the next check, a scripted 0.9 for `identity_mapping_change` selects `re_plan_join`, the repair proposal rebuilds and deploys, and the commitment is no longer degraded. A scripted `unknown` yields one `QuestionOpened` and no repair attempt. `tests/test_repair.py` confirms `TriageInput` has no SQL field and `veena.repair` imports neither the planner nor a backend.
+* **R6.10** `test_unfixable_corruption_escalates_with_the_four_parts` and `test_failed_live_verification_is_unmet_and_degraded_until_a_fix_deploys`: the interface resolves to the last verified implementation and `veena ops` prints its source position.
+* **R6.11** With the bound at 1 and a duplicated mapping, one question carries the failing check, the magnitude, the triage class and probability, and the alternatives tried.
+* **R6.11a** `test_narration_comes_from_the_structured_trail_and_is_recorded`: the drafter receives only the structured trail, the text is a `DraftProduced` event, and without a drafter the command prints the trail and says so.
+* **R6.12** `test_rollback_shows_impact_until_acknowledged`: the view lists consumers and interval until `veena ops ack` records `ImpactAcknowledged`.
+* **R6.13 to R6.16** `tests/test_retirement.py`: an asset with zero queries and an open commitment is never eligible; observed reads inside the quiet period hold it; the 30-day asset moves through stop refresh, view replacement, and drop as three events while the daily asset stays active; `veena asset show` prints the full trail after retirement; releasing both windowed commitments retires both outputs before the daily asset, which retires last.
+* **R6.17** `tests/test_lineage.py`: both files are written, share asset and implementation ids, and pass the structural checks.
+* **R6.18** `test_deployments_carry_reproduction_artifacts`: source positions, rendered SQL references, backend and version, and a retention date per artifact; `veena deployment show` warns when a source snapshot has expired.
+
+### Partial
+
+* **R6.9a** The triage classifier in the CLI is the rule baseline. Its probabilities are hand-set; the bundled labeled set has six entries and `veena models calibration triage_failure --classifier rules` reports accuracy 0.83 with expected calibration error 0.12. Real failures labeled by on-call engineers would settle whether a stated 0.75 is right three times in four.
+* **R6.14** `stop_refresh` is a record, not a scheduler change, because veena has no scheduler yet. It is reversed by a new commitment on the asset.
+* **R6.17** Validation checks the structural rules the export relies on: required RunEvent fields and UUID run ids, known PROV tables and relations that name known ids. The published JSON schemas were not fetched offline. Running both files through the OpenLineage and PROV validators would settle full conformance.
+* **Usability check.** Nobody who had not seen the scenario has traced an injected failure to its decision yet. The time it takes is unrecorded.

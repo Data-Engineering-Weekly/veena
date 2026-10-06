@@ -286,15 +286,18 @@ def _autonomy(name: str) -> Literal["shadow", "assisted", "autonomous"]:
 
 def _classifier(name: str) -> Classifier:
     from veena.models import ClaudeClassifier, JevClassifier, KeywordClassifier
+    from veena.repair import RuleTriageClassifier
 
     match name:
         case "keyword":
             return KeywordClassifier()
+        case "rules":
+            return RuleTriageClassifier()
         case "claude":
             return ClaudeClassifier()
         case "jev":
             return JevClassifier()
-    raise _fail(VeenaError(f"unknown classifier {name!r}; use keyword, claude, or jev"))
+    raise _fail(VeenaError(f"unknown classifier {name!r}; use keyword, rules, claude, or jev"))
 
 
 def _drafter(name: str) -> Drafter | None:
@@ -742,8 +745,10 @@ def _coordinator(
     min_benefit: int = 1,
     max_reorganizations: int = 1,
     autonomy: str = "assisted",
+    classifier: str = "rules",
+    min_probability: float = 0.7,
 ) -> tuple[Registry, Coordinator]:
-    from veena.policy import ReorganizationPolicy
+    from veena.policy import ReorganizationPolicy, RepairPolicy
 
     reg = _open_registry(registry)
     model = load_semantic_model(_semantic_path(semantic))
@@ -754,7 +759,15 @@ def _coordinator(
         min_benefit_rows=min_benefit,
         max_reorganizations_per_period=max_reorganizations,
     )
-    return reg, Coordinator(reg, backend, model, repair_bound=repair_bound, policy=policy)
+    return reg, Coordinator(
+        reg,
+        backend,
+        model,
+        repair_bound=repair_bound,
+        policy=policy,
+        repair_policy=RepairPolicy(min_probability=min_probability),
+        classifier=_classifier(classifier),
+    )
 
 
 def _report_activation(outcome: ActivationOutcome, reg: Registry) -> None:
@@ -1018,32 +1031,64 @@ def models_calls(registry: RegistryPath = DEFAULT_REGISTRY, asset_id: str = "") 
 def models_calibration(
     site: Annotated[str, typer.Argument(help="Call site, e.g. resolve_refs.")],
     semantic: SemanticPath = None,
-    classifier: ClassifierChoice = "keyword",
+    classifier: Annotated[
+        str,
+        typer.Option(
+            "--classifier",
+            help="keyword or rules (offline baselines), claude (ANTHROPIC_API_KEY), jev (JEV_*).",
+        ),
+    ] = "keyword",
     labels: Annotated[Path | None, typer.Option(help="Labeled YAML. Default: bundled.")] = None,
     log_dir: Annotated[Path, typer.Option(help="Where labeled predictions accumulate.")] = Path(
         ".veena/calibration"
     ),
 ) -> None:
-    """Run the labeled set through a classifier and print the reliability table."""
+    """Run the labeled set through a classifier and print the reliability table.
+
+    Sites: `resolve_refs` (default classifier keyword) and `triage_failure` (use `--classifier
+    rules` for the offline baseline).
+    """
     import yaml
 
     from veena.models import CalibrationLog, CalibrationRecord, calibration_report, closed_set
     from veena.resolver import SlotContext
 
-    if site != "resolve_refs":
-        raise _fail(VeenaError(f"no labeled set for site {site!r}; only resolve_refs exists yet"))
-    model = load_semantic_model(_semantic_path(semantic))
-    path = labels or Path(str(files("veena.scenario") / "labels" / "resolve_refs.yaml"))
+    if site not in {"resolve_refs", "triage_failure"}:
+        raise _fail(
+            VeenaError(f"no labeled set for site {site!r}; resolve_refs and triage_failure exist")
+        )
+    path = labels or Path(str(files("veena.scenario") / "labels" / f"{site}.yaml"))
     if not path.exists():
         raise _fail(VeenaError(f"no labeled set at {path}"))
     entries = yaml.safe_load(path.read_text())
     clf = _classifier(classifier)
+    log = CalibrationLog(log_dir / f"{site}.jsonl")
+    records = []
+    if site == "triage_failure":
+        from veena.policy import CauseClass
+        from veena.repair import TriageInput
+
+        for entry in entries:
+            expected = str(entry.pop("expected"))
+            context = TriageInput.model_validate(entry)
+            picked = clf.classify(context, CauseClass)
+            record = CalibrationRecord(
+                site=site,
+                slot="cause",
+                model_id=picked.model_id,
+                predicted=picked.value.value,
+                expected=expected,
+                probability=picked.probability,
+            )
+            log.append(record)
+            records.append(record)
+        typer.echo(calibration_report(site, tuple(records)).render())
+        return
+    model = load_semantic_model(_semantic_path(semantic))
     options_by_slot = {
         "population.entity": {e.name: e.description or e.name for e in model.entities},
         "measures.calculation": {c.name: c.description or c.name for c in model.calculations},
     }
-    log = CalibrationLog(log_dir / f"{site}.jsonl")
-    records = []
     for entry in entries:
         slot = str(entry["slot"])
         options = options_by_slot[slot]
@@ -1319,6 +1364,472 @@ def report_usage(registry: RegistryPath = DEFAULT_REGISTRY, asset_id: str = "") 
                 f"  {aid:<28} {c.runs:>3} rebuilds {c.bytes_scanned / 1e9:>8.2f} GB "
                 f"{c.credits:>9.4f} credits"
             )
+
+
+# ---- phase 6: operations, brakes, repair, retirement, lineage -----------------------------
+
+ops_app = typer.Typer(
+    invoke_without_command=True,
+    help="The operator view: unmet commitments, consumers, deployments, proposals, brakes.",
+)
+commitment_app = typer.Typer(no_args_is_help=True, help="List and release commitments.")
+retire_app = typer.Typer(no_args_is_help=True, help="Graded retirement of unused assets.")
+export_app = typer.Typer(no_args_is_help=True, help="Export lineage.")
+app.add_typer(ops_app, name="ops")
+app.add_typer(commitment_app, name="commitment")
+app.add_typer(retire_app, name="retire")
+app.add_typer(export_app, name="export")
+
+Actor = Annotated[str, typer.Option(help="Who is acting, e.g. user:oncall.")]
+Authority = Annotated[str, typer.Option(help="Under what authority, e.g. role:operator.")]
+Reason = Annotated[str, typer.Option(help="Why. Recorded on the event.")]
+
+
+@ops_app.callback()
+def ops(
+    ctx: typer.Context,
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+    as_of: AsOf = None,
+    recent_days: Annotated[int, typer.Option(help="How far back a deployment is recent.")] = 7,
+) -> None:
+    """Print the operator view. With a scenario present, source positions are observed first."""
+    if ctx.invoked_subcommand is not None:
+        return
+    from veena.ops import operator_view, render_view
+
+    instant = _as_of(as_of)
+    try:
+        if scenario.exists():
+            reg, coordinator = _coordinator(registry, scenario, semantic)
+            coordinator.observe_sources(as_of=instant)
+        else:
+            reg = _open_registry(registry, must_exist=True)
+        view = operator_view(reg.state, as_of=instant, recent_days=recent_days)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(render_view(view, reg.state))
+
+
+@ops_app.command("trail")
+def ops_trail(
+    commitment_id: str,
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    narrate: Annotated[
+        bool, typer.Option("--narrate", help="Add prose from the drafter under the trail.")
+    ] = False,
+    drafter: DrafterChoice = "none",
+) -> None:
+    """Deployment, proposal, verification, specification, decisions, with actor and authority."""
+    from veena.ops import narrate as narrate_trail
+    from veena.ops import trail
+
+    reg = _open_registry(registry, must_exist=True)
+    try:
+        record = trail(reg.state, commitment_id)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(record.render())
+    if narrate:
+        chosen = _drafter(drafter)
+        if chosen is None:
+            typer.echo("")
+            typer.echo("narration: no drafter configured; the structured trail above is complete")
+            return
+        try:
+            text = narrate_trail(reg, record, chosen)
+        except VeenaError as exc:
+            raise _fail(exc) from exc
+        typer.echo("")
+        typer.echo(f"narration: {text}")
+
+
+@ops_app.command("ack")
+def ops_ack(
+    deployment_id: str,
+    reason: Reason,
+    actor: Actor = "user:oncall",
+    authority: Authority = "role:operator",
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+) -> None:
+    """Record that the readers of a rolled-back deployment were assessed."""
+    try:
+        _, coordinator = _coordinator(registry, scenario, semantic)
+        coordinator.acknowledge_impact(
+            deployment_id, reason=reason, actor=actor, authority=authority
+        )
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(f"acknowledged impact of {deployment_id}")
+
+
+@ops_app.command("freeze")
+def ops_freeze(
+    asset_id: str,
+    reason: Reason,
+    subgraph: Annotated[
+        bool, typer.Option("--subgraph", help="Also freeze every asset that reads this one.")
+    ] = False,
+    actor: Actor = "user:oncall",
+    authority: Authority = "role:operator",
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+) -> None:
+    """Stop reorganization of an asset. Proposals touching it are recorded and refused."""
+    try:
+        _, coordinator = _coordinator(registry, scenario, semantic)
+        coordinator.freeze(
+            asset_id, reason=reason, actor=actor, authority=authority, include_dependents=subgraph
+        )
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(f"frozen {asset_id}" + (" and its dependents" if subgraph else ""))
+
+
+@ops_app.command("unfreeze")
+def ops_unfreeze(
+    asset_id: str,
+    reason: Reason = "released",
+    actor: Actor = "user:oncall",
+    authority: Authority = "role:operator",
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+) -> None:
+    """End a freeze."""
+    try:
+        _, coordinator = _coordinator(registry, scenario, semantic)
+        coordinator.unfreeze(asset_id, reason=reason, actor=actor, authority=authority)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(f"unfrozen {asset_id}")
+
+
+@ops_app.command("pin")
+def ops_pin(
+    asset_id: str,
+    implementation_id: str,
+    reason: Reason,
+    actor: Actor = "user:oncall",
+    authority: Authority = "role:operator",
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+) -> None:
+    """Bind the asset's interface to one implementation until `veena ops unpin`."""
+    try:
+        _, coordinator = _coordinator(registry, scenario, semantic)
+        coordinator.pin(
+            asset_id, implementation_id, reason=reason, actor=actor, authority=authority
+        )
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(f"pinned {asset_id} to {implementation_id}")
+
+
+@ops_app.command("unpin")
+def ops_unpin(
+    asset_id: str,
+    reason: Reason = "released",
+    actor: Actor = "user:oncall",
+    authority: Authority = "role:operator",
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+) -> None:
+    """Release a pin; the interface moves to the active implementation."""
+    try:
+        reg, coordinator = _coordinator(registry, scenario, semantic)
+        coordinator.unpin(asset_id, reason=reason, actor=actor, authority=authority)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(f"unpinned {asset_id}; interface at {reg.state.interface_of(asset_id) or '-'}")
+
+
+@ops_app.command("brakes")
+def ops_brakes(registry: RegistryPath = DEFAULT_REGISTRY, as_of: AsOf = None) -> None:
+    """The weekly report: every active freeze and pin with its age."""
+    from veena.ops import operator_view
+
+    state = _open_registry(registry, must_exist=True).state
+    view = operator_view(state, as_of=_as_of(as_of))
+    if not view.brakes:
+        typer.echo("no active brakes")
+    for b in view.brakes:
+        days = b.age_seconds / 86400
+        typer.echo(
+            f"{b.kind:<6} {b.asset_id:<28} {days:>6.1f} days  by {b.actor} ({b.authority})  "
+            f"{b.detail}"
+        )
+
+
+@asset_app.command("check")
+def asset_check(
+    asset_id: str,
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+    as_of: AsOf = None,
+    classifier: Annotated[
+        str,
+        typer.Option(
+            "--classifier", help="rules (offline baseline), keyword, claude, or jev for triage."
+        ),
+    ] = "rules",
+    min_probability: Annotated[
+        float, typer.Option(help="Triage probability below which the engine asks (policy knob).")
+    ] = 0.7,
+    repair_bound: Annotated[int, typer.Option(help="Repair attempts before escalating.")] = 2,
+) -> None:
+    """Check the live interface; on failure triage the cause and repair under policy."""
+    try:
+        reg, coordinator = _coordinator(
+            registry,
+            scenario,
+            semantic,
+            repair_bound=repair_bound,
+            classifier=classifier,
+            min_probability=min_probability,
+        )
+        outcome = coordinator.check_live(asset_id, as_of=_as_of(as_of))
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    live = reg.state.live_verifications[outcome.verification_id]
+    _print_checks(live.checks)
+    if outcome.passed:
+        typer.echo(f"{outcome.verification_id} passed; grade {live.grade}")
+        return
+    assert outcome.triage is not None
+    typer.echo(
+        f"{outcome.verification_id} failed; {outcome.triage.summary()} [{outcome.triage.model_id}]"
+    )
+    if outcome.frozen_by:
+        typer.echo(
+            f"repair {outcome.proposal_id} recorded and refused: {outcome.frozen_by} is frozen"
+        )
+        raise typer.Exit(code=3)
+    if outcome.activation is not None:
+        _report_activation(outcome.activation, reg)
+        return
+    if outcome.question_id:
+        typer.echo(f"opened question {outcome.question_id}; the commitment is degraded")
+        raise typer.Exit(code=3)
+    typer.echo("waiting for the source; the commitment is degraded")
+    raise typer.Exit(code=3)
+
+
+@proposal_app.command("replay")
+def proposal_replay(
+    proposal_id: str,
+    at: Annotated[str, typer.Option("--at", help="Source position to replay at, ISO 8601.")],
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    semantic: SemanticPath = None,
+) -> None:
+    """Rebuild the proposal's implementations at a past position and verify them there."""
+    try:
+        _, coordinator = _coordinator(registry, scenario, semantic)
+        outcomes = coordinator.replay(proposal_id, at=_as_of(at))
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    for outcome in outcomes:
+        typer.echo(f"replay of {outcome.relation} at {outcome.as_of.isoformat()}:")
+        _print_checks(outcome.checks)
+    passed = all(o.passed for o in outcomes)
+    typer.echo(
+        f"replay {'passed' if passed else 'failed'}; recorded as replay verifications that no "
+        "deployment can cite"
+    )
+    if not passed:
+        raise typer.Exit(code=3)
+
+
+@deployment_app.command("show")
+def deployment_show(
+    deployment_id: str, registry: RegistryPath = DEFAULT_REGISTRY, as_of: AsOf = None
+) -> None:
+    """Print one deployment with the artifacts needed to reproduce it."""
+    state = _open_registry(registry, must_exist=True).state
+    d = state.deployments.get(deployment_id)
+    if d is None:
+        raise _fail(VeenaError(f"unknown deployment {deployment_id!r}"))
+    status = "rolled back" if d.rolled_back else "active"
+    typer.echo(
+        f"deployment {d.deployment_id} ({status}) at {d.effective_at.isoformat()} by {d.actor} "
+        f"({d.authority}); proposal {d.proposal_id}; assumed revision {d.assumed_revision}"
+    )
+    for asset_id, impl_id in d.activated.items():
+        typer.echo(f"  {asset_id} -> {impl_id} (replaced {d.replaced.get(asset_id) or 'nothing'})")
+    if d.artifacts is None:
+        typer.echo("  no reproduction artifacts recorded")
+        return
+    a = d.artifacts
+    typer.echo(f"  backend {a.backend} {a.backend_version}")
+    for source, position in sorted(a.source_positions.items()):
+        typer.echo(f"  source position {source} @ {position.isoformat()}")
+    for asset_id, impl_id in a.sql_refs.items():
+        typer.echo(f"  rendered SQL for {asset_id}: implementation {impl_id}")
+    now = _as_of(as_of)
+    for name, expires in sorted(a.retention.items()):
+        if expires is None:
+            typer.echo(f"  retention {name}: kept forever")
+        elif expires < now:
+            typer.echo(
+                f"  WARNING retention {name}: expired {expires.isoformat()}; the deployment can "
+                "no longer be reproduced from the warehouse"
+            )
+        else:
+            typer.echo(f"  retention {name}: until {expires.isoformat()}")
+
+
+@commitment_app.command("list")
+def commitment_list(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
+    """List commitments with consumer, bound, and whether released."""
+    state = _open_registry(registry, must_exist=True).state
+    if not state.commitments:
+        typer.echo("no commitments recorded")
+    for c in sorted(state.commitments.values(), key=lambda c: c.seq):
+        status = "released" if c.released else "open"
+        typer.echo(
+            f"{c.commitment_id:<36} {c.consumer:<20} within {c.incorporate_within_seconds}s "
+            f"{status}"
+        )
+
+
+@commitment_app.command("release")
+def commitment_release(
+    commitment_id: str,
+    reason: Reason = "no longer needed",
+    actor: Actor = "user:owner",
+    authority: Authority = "role:consumer_owner",
+    registry: RegistryPath = DEFAULT_REGISTRY,
+) -> None:
+    """Record that a consumer no longer depends on the asset."""
+    from veena.registry import CommitmentReleased
+
+    reg = _open_registry(registry, must_exist=True)
+    try:
+        reg.append(
+            Event(
+                actor=actor,
+                authority=authority,
+                causes=(f"commitment:{commitment_id}",),
+                payload=CommitmentReleased(commitment_id=commitment_id, reason=reason),
+            )
+        )
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(f"released {commitment_id}; registry at revision {reg.revision}")
+
+
+@retire_app.command("plan")
+def retire_plan(
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    as_of: AsOf = None,
+    keep_days: Annotated[
+        int, typer.Option(help="Days a table is kept after its last commitment ends.")
+    ] = 30,
+) -> None:
+    """Show the next retirement step for every asset, and why it waits."""
+    from veena.policy import RetentionPolicy
+    from veena.retirement import consider
+
+    state = _open_registry(registry, must_exist=True).state
+    policy = RetentionPolicy(keep_materialization_days=keep_days)
+    instant = _as_of(as_of)
+    rows = [
+        consider(state, a.asset_id, as_of=instant, policy=policy)
+        for a in sorted(state.assets.values(), key=lambda a: a.asset_id)
+        if a.status in ("active", "dormant")
+    ]
+    if not rows:
+        typer.echo("nothing to retire")
+    for d in rows:
+        step = d.next_step.value if d.next_step else "retire"
+        verdict = f"next: {step}" if d.eligible else f"waits before {step}"
+        typer.echo(f"{d.asset_id:<28} {verdict:<32} {'; '.join(d.reasons) or '-'}")
+
+
+@retire_app.command("advance")
+def retire_advance(
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+    as_of: AsOf = None,
+    asset_id: Annotated[str, typer.Option(help="Only this asset.")] = "",
+    keep_days: Annotated[
+        int, typer.Option(help="Days a table is kept after its last commitment ends.")
+    ] = 30,
+    until_stable: Annotated[
+        bool, typer.Option("--until-stable", help="Keep stepping until nothing changes.")
+    ] = False,
+) -> None:
+    """Take the next retirement step for every eligible asset, dependents first."""
+    from veena.policy import RetentionPolicy
+    from veena.retirement import Retirer
+
+    reg = _open_registry(registry, must_exist=True)
+    backend = _scenario_connection(scenario, read_only=False)
+    retirer = Retirer(reg, backend, policy=RetentionPolicy(keep_materialization_days=keep_days))
+    instant = _as_of(as_of)
+    total = 0
+    try:
+        while True:
+            taken = retirer.advance(as_of=instant, asset_id=asset_id or None)
+            for step in taken:
+                typer.echo(f"{step.asset_id:<28} {step.label:<22} {step.detail}")
+            total += len(taken)
+            if not taken or not until_stable:
+                break
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    if total == 0:
+        typer.echo("no asset is ready for a retirement step; see `veena retire plan`")
+
+
+@export_app.command("lineage")
+def export_lineage_command(
+    registry: RegistryPath = DEFAULT_REGISTRY,
+    out: Annotated[Path, typer.Option(help="Directory for the two files.")] = Path(
+        ".veena/lineage"
+    ),
+) -> None:
+    """Write OpenLineage run events and a W3C PROV document linked by asset and implementation."""
+    from veena.lineage import export_lineage
+
+    state = _open_registry(registry, must_exist=True).state
+    ol_path, prov_path, problems = export_lineage(state, out)
+    typer.echo(f"wrote {ol_path} and {prov_path}")
+    if problems:
+        for problem in problems:
+            typer.echo(f"  problem: {problem}")
+        raise typer.Exit(code=3)
+    typer.echo("both documents pass the structural checks")
+
+
+@scenario_app.command("drift")
+def scenario_drift(
+    kind: Annotated[
+        str, typer.Argument(help="mapping_change, duplicate_mapping, or late_purchases.")
+    ],
+    scenario: ScenarioPath = DEFAULT_SCENARIO,
+) -> None:
+    """Change the sources after an asset was built, so the next live check fails."""
+    from veena.scenario import DriftKind, apply_drift
+
+    try:
+        chosen = DriftKind(kind)
+    except ValueError as exc:
+        raise _fail(VeenaError(f"unknown drift {kind!r}; use {', '.join(DriftKind)}")) from exc
+    backend = _scenario_connection(scenario, read_only=False)
+    try:
+        note = apply_drift(backend.connection, chosen)
+    except VeenaError as exc:
+        raise _fail(exc) from exc
+    typer.echo(note)
 
 
 def main() -> None:

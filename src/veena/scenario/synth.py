@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import random
 from datetime import UTC, date, datetime, timedelta
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import duckdb
@@ -73,6 +74,91 @@ def build_scenario(target: Path | None, config: ScenarioConfig) -> duckdb.DuckDB
     _create_tables(conn)
     _populate(conn, rng, config)
     return conn
+
+
+class DriftKind(StrEnum):
+    """Ways the sources change after an asset was built, the way warehouses do."""
+
+    MAPPING_CHANGE = "mapping_change"
+    DUPLICATE_MAPPING = "duplicate_mapping"
+    LATE_PURCHASES = "late_purchases"
+
+
+def apply_drift(
+    conn: duckdb.DuckDBPyConnection,
+    kind: DriftKind,
+    *,
+    last_complete_day: date = date(2026, 9, 30),
+) -> str:
+    """Change the sources so a live asset built before the change fails its next check.
+
+    `mapping_change` moves one busy account to another customer: the asset is stale and a
+    rebuild repairs it. `duplicate_mapping` adds an overlapping mapping row for that account:
+    facts count twice, and a rebuild counts them twice too, so only a person can repair it.
+    `late_purchases` adds settled purchases inside the window: a rebuild repairs it.
+
+    Returns:
+        One sentence saying what changed.
+
+    Raises:
+        ScenarioError: No account qualifies.
+    """
+    end = datetime.combine(last_complete_day + timedelta(days=1), datetime.min.time(), UTC)
+    start = end - timedelta(days=30)
+    row = conn.execute(
+        """
+        SELECT p.account_id, m.customer_id, m.mapping_id, count(*) AS n
+        FROM purchases p
+        JOIN identity_mappings m USING (account_id)
+        WHERE p.status = 'settled' AND p.purchased_at >= ? AND p.purchased_at < ?
+          AND m.valid_to IS NULL
+          AND (SELECT count(*) FROM identity_mappings x WHERE x.account_id = p.account_id) = 1
+        GROUP BY 1, 2, 3
+        ORDER BY n DESC, p.account_id
+        LIMIT 1
+        """,
+        [start, end],
+    ).fetchone()
+    if row is None:
+        msg = "no account with a single mapping and settled purchases in the last 30 days"
+        raise ScenarioError(msg)
+    account_id, customer_id, mapping_id, _ = row
+    other = conn.execute(
+        "SELECT customer_id FROM customers WHERE customer_id <> ? ORDER BY customer_id LIMIT 1",
+        [customer_id],
+    ).fetchone()
+    assert other is not None
+    target = other[0]
+    match kind:
+        case DriftKind.MAPPING_CHANGE:
+            conn.execute(
+                "UPDATE identity_mappings SET customer_id = ? WHERE mapping_id = ?",
+                [target, mapping_id],
+            )
+            return f"account {account_id} moved from {customer_id} to {target} in identity_mappings"
+        case DriftKind.DUPLICATE_MAPPING:
+            conn.execute(
+                "INSERT INTO identity_mappings SELECT ? , account_id, ?, valid_from, NULL "
+                "FROM identity_mappings WHERE mapping_id = ?",
+                [f"{mapping_id}_dup", target, mapping_id],
+            )
+            return (
+                f"account {account_id} now maps to both {customer_id} and {target} over the same "
+                "validity"
+            )
+        case DriftKind.LATE_PURCHASES:
+            rows = [
+                (
+                    f"late{i:03d}",
+                    account_id,
+                    start + timedelta(days=i % 28, hours=12),
+                    100.0 + i,
+                    "settled",
+                )
+                for i in range(20)
+            ]
+            _bulk_insert(conn, "purchases", rows)
+            return f"20 settled purchases arrived late for account {account_id}"
 
 
 def scenario_stats(conn: duckdb.DuckDBPyConnection) -> ScenarioStats:

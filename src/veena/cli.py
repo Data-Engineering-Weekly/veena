@@ -72,7 +72,10 @@ def _semantic_path(path: Path | None) -> Path:
 def _as_of(text: str | None) -> datetime:
     if text is None:
         return datetime.now(UTC)
-    parsed = datetime.fromisoformat(text)
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise _fail(VeenaError(f"--as-of {text!r} is not an ISO 8601 instant")) from exc
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
@@ -179,11 +182,33 @@ def scenario_semantic() -> None:
         )
 
 
-def _open_registry(path: Path) -> Registry:
-    """Open the registry. Callers close it; `_closing` does so at command exit."""
-    registry = Registry(SqliteEventStore(path))
+def _open_registry(path: Path, *, must_exist: bool = False) -> Registry:
+    """Open the registry; the command callback closes it on exit.
+
+    Read-only commands pass `must_exist` so a mistyped path is an error, not an empty registry.
+    """
+    if must_exist and not path.exists():
+        raise _fail(
+            VeenaError(
+                f"no registry at {path}; run `veena asset request` or `veena import dbt` first"
+            )
+        )
+    try:
+        registry = Registry(SqliteEventStore(path))
+    except VeenaError as exc:
+        raise _fail(exc) from exc
     _OPEN.append(registry)
     return registry
+
+
+def _scenario_connection(scenario: Path, *, read_only: bool) -> DuckDBBackend:
+    if not scenario.exists():
+        raise _fail(
+            VeenaError(f"no scenario database at {scenario}; run `veena scenario build` first")
+        )
+    backend = DuckDBBackend(duckdb.connect(str(scenario), read_only=read_only))
+    _OPEN.append(backend)
+    return backend
 
 
 _OPEN: list[Registry | DuckDBBackend] = []
@@ -202,7 +227,7 @@ def _close_all() -> None:
 @registry_app.command("log")
 def registry_log(registry: RegistryPath = DEFAULT_REGISTRY, after: int = 0) -> None:
     """Print every event after a revision."""
-    reg = _open_registry(registry)
+    reg = _open_registry(registry, must_exist=True)
     for stored in reg.events(after=after):
         event = stored.event
         typer.echo(
@@ -214,7 +239,7 @@ def registry_log(registry: RegistryPath = DEFAULT_REGISTRY, after: int = 0) -> N
 @registry_app.command("assets")
 def registry_assets(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
     """List assets with status, spec version, and open commitments."""
-    state = _open_registry(registry).state
+    state = _open_registry(registry, must_exist=True).state
     typer.echo(f"revision {state.revision}")
     for asset in sorted(state.assets.values(), key=lambda a: a.asset_id):
         spec = asset.spec.ref if asset.spec else "-"
@@ -299,9 +324,7 @@ def _resolver(
     model = load_semantic_model(_semantic_path(semantic))
     execute = None
     if scenario.exists():
-        backend = DuckDBBackend(duckdb.connect(str(scenario), read_only=True))
-        _OPEN.append(backend)
-        execute = backend.execute
+        execute = _scenario_connection(scenario, read_only=True).execute
     return reg, Resolver(
         reg,
         model,
@@ -310,6 +333,21 @@ def _resolver(
         policy=ResolutionPolicy(default_threshold=threshold),
         execute=execute,
     )
+
+
+def _print_alternatives(
+    alternatives: tuple[str, ...], evidence: tuple[str, ...], *, per_alternative: bool
+) -> None:
+    """Evidence is one line per alternative for resolver questions, one per slot for drafts."""
+    if per_alternative:
+        for alternative, line in zip(alternatives, evidence, strict=False):
+            typer.echo(f"  - {alternative}: {line}")
+        for alternative in alternatives[len(evidence) :]:
+            typer.echo(f"  - {alternative}")
+        return
+    for line in evidence:
+        typer.echo(f"  {line}")
+    typer.echo(f"  choose one of: {', '.join(alternatives)}")
 
 
 def _report_outcome(outcome: Outcome, reg: Registry) -> None:
@@ -341,10 +379,10 @@ def _report_outcome(outcome: Outcome, reg: Registry) -> None:
 
 @asset_app.command("request")
 def asset_request(
+    consumer: Annotated[str, typer.Option(help="Who depends on the asset, e.g. app:sales.")],
     spec_path: Annotated[
         Path | None, typer.Argument(help="Resolved spec to register. Omit to resolve --text.")
     ] = None,
-    consumer: Annotated[str, typer.Option(help="Who depends on the asset, e.g. app:sales.")] = "",
     text: Annotated[str, typer.Option(help="The request in the consumer's words.")] = "",
     asset_id: Annotated[
         str, typer.Option("--asset-id", help="Identity for the asset when resolving from text.")
@@ -357,8 +395,6 @@ def asset_request(
     threshold: Threshold = 0.8,
 ) -> None:
     """Record a request. With a spec file, register it as resolved; with --text, resolve it."""
-    if not consumer:
-        raise _fail(VeenaError("--consumer is required"))
     if spec_path is None:
         if not text or not asset_id:
             raise _fail(VeenaError("resolving from text needs --text and --asset-id"))
@@ -520,8 +556,7 @@ def asset_verify(
         raise _fail(VeenaError(f"asset {asset_id!r} has no active implementation to verify"))
     try:
         model = load_semantic_model(_semantic_path(semantic))
-        backend = DuckDBBackend(duckdb.connect(str(scenario), read_only=True))
-        _OPEN.append(backend)
+        backend = _scenario_connection(scenario, read_only=True)
         outcome = verify(spec, model, asset_id, backend.execute, as_of=_as_of(as_of))
     except VeenaError as exc:
         raise _fail(exc) from exc
@@ -538,7 +573,7 @@ def asset_show(
     output_format: Annotated[str, typer.Option("--format", help="text or yaml.")] = "text",
 ) -> None:
     """Print the trail: spec, commitments, deployments, proposals, verifications, decisions."""
-    state = _open_registry(registry).state
+    state = _open_registry(registry, must_exist=True).state
     asset = state.assets.get(asset_id)
     if asset is None:
         raise _fail(VeenaError(f"unknown asset {asset_id!r}"))
@@ -632,9 +667,15 @@ def _fragment_yaml(asset_id: str, state: RegistryState) -> str:
         values: dict[str, str] = {
             "population.entity": str(spec.population.entity),
             "population.include_inactive": str(spec.population.include_inactive).lower(),
+            "grain.time_bucket": spec.grain.time_bucket.value,
             "measures.calculation": ", ".join(str(m.calculation) for m in spec.measures),
             "measures.aggregation": ", ".join(m.aggregation for m in spec.measures),
-            "window.complete_calendar_days": str(spec.window.complete_calendar_days),
+        }
+        if spec.window.complete_calendar_days is not None:
+            values["window.complete_calendar_days"] = str(spec.window.complete_calendar_days)
+        if spec.window.history_days is not None:
+            values["window.history_days"] = str(spec.window.history_days)
+        values |= {
             "window.timezone": spec.window.timezone,
             "identity_policy": str(spec.identity_policy),
             "service.incorporate_within": (
@@ -699,8 +740,7 @@ def _coordinator(
 
     reg = _open_registry(registry)
     model = load_semantic_model(_semantic_path(semantic))
-    backend = DuckDBBackend(duckdb.connect(str(scenario)))
-    _OPEN.append(backend)
+    backend = _scenario_connection(scenario, read_only=False)
     policy = ReorganizationPolicy(
         autonomy=_autonomy(autonomy),
         require_approval=require_approval,
@@ -735,7 +775,7 @@ def _report_activation(outcome: ActivationOutcome, reg: Registry) -> None:
 @proposal_app.command("list")
 def proposal_list(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
     """List proposals with kind, status, and affected assets."""
-    state = _open_registry(registry).state
+    state = _open_registry(registry, must_exist=True).state
     for p in sorted(state.proposals.values(), key=lambda p: p.seq):
         typer.echo(
             f"{p.proposal_id:<34} {p.kind_of_change:<7} {p.status:<10} "
@@ -746,7 +786,7 @@ def proposal_list(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
 @proposal_app.command("show")
 def proposal_show(proposal_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -> None:
     """Print one proposal: changes, costs, alternatives considered, evidence, status."""
-    state = _open_registry(registry).state
+    state = _open_registry(registry, must_exist=True).state
     p = state.proposals.get(proposal_id)
     if p is None:
         raise _fail(VeenaError(f"unknown proposal {proposal_id!r}"))
@@ -816,7 +856,7 @@ def proposal_reject(
 @deployment_app.command("list")
 def deployment_list(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
     """List deployments and what each switched."""
-    state = _open_registry(registry).state
+    state = _open_registry(registry, must_exist=True).state
     for d in sorted(state.deployments.values(), key=lambda d: d.seq):
         status = "rolled back" if d.rolled_back else "active"
         switched = ", ".join(f"{a} -> {i}" for a, i in d.activated.items())
@@ -856,7 +896,7 @@ def question_list(
     open_only: Annotated[bool, typer.Option("--open", help="Only unanswered questions.")] = False,
 ) -> None:
     """List questions with slot, asset, and answer."""
-    state = _open_registry(registry).state
+    state = _open_registry(registry, must_exist=True).state
     for q in sorted(state.questions.values(), key=lambda q: q.seq):
         if open_only and q.decision_id:
             continue
@@ -867,7 +907,7 @@ def question_list(
 @question_app.command("show")
 def question_show(question_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -> None:
     """Print one question with its alternatives and evidence."""
-    state = _open_registry(registry).state
+    state = _open_registry(registry, must_exist=True).state
     q = state.questions.get(question_id)
     if q is None:
         raise _fail(VeenaError(f"unknown question {question_id!r}"))
@@ -876,10 +916,7 @@ def question_show(question_id: str, registry: RegistryPath = DEFAULT_REGISTRY) -
         f"asked by {q.consumer or '-'}"
     )
     typer.echo(f"  {q.question}")
-    for alternative, evidence in zip(q.alternatives, q.evidence, strict=False):
-        typer.echo(f"  - {alternative}: {evidence}")
-    for alternative in q.alternatives[len(q.evidence) :]:
-        typer.echo(f"  - {alternative}")
+    _print_alternatives(q.alternatives, q.evidence, per_alternative=q.slot != "inferred_spec")
     if q.decision_id:
         d = state.decisions[q.decision_id]
         typer.echo(
@@ -984,6 +1021,8 @@ def models_calibration(
         raise _fail(VeenaError(f"no labeled set for site {site!r}; only resolve_refs exists yet"))
     model = load_semantic_model(_semantic_path(semantic))
     path = labels or Path(str(files("veena.scenario") / "labels" / "resolve_refs.yaml"))
+    if not path.exists():
+        raise _fail(VeenaError(f"no labeled set at {path}"))
     entries = yaml.safe_load(path.read_text())
     clf = _classifier(classifier)
     options_by_slot = {
@@ -1030,7 +1069,10 @@ def scenario_dbt(
     """Write the bundled e-commerce dbt manifest and query history fixture."""
     from veena.scenario.dbt_fixture import DbtFixtureConfig, write_fixture
 
-    manifest, history = write_fixture(out, DbtFixtureConfig(history_days=history_days))
+    try:
+        manifest, history = write_fixture(out, DbtFixtureConfig(history_days=history_days))
+    except OSError as exc:
+        raise _fail(exc) from exc
     typer.echo(f"wrote {manifest} and {history}")
 
 
@@ -1064,9 +1106,12 @@ def import_dbt(
         report = import_project(reg, project)
         typer.echo(
             f"imported {project.project_name}: {report.assets_added} assets added, "
-            f"{report.assets_updated} updated, {report.assets_unchanged} unchanged; "
+            f"{report.assets_updated} updated, {report.assets_unchanged} unchanged, "
+            f"{report.assets_skipped} ephemeral skipped; "
             f"{report.commitments_added} commitments added, {report.commitments_unchanged} kept"
         )
+        for asset_id in report.missing:
+            typer.echo(f"  missing from this manifest: {asset_id} (retirement is a later phase)")
         imported = semantic_from_project(project)
         semantic_out.parent.mkdir(parents=True, exist_ok=True)
         semantic_out.write_text(
@@ -1116,7 +1161,7 @@ def import_dbt(
                 f"{h.refresh_cost_rows} refresh costs, {h.unmanaged_reads} unmanaged reads, "
                 f"{h.commitments_proposed} commitments proposed"
             )
-    except VeenaError as exc:
+    except (VeenaError, OSError) as exc:
         raise _fail(exc) from exc
 
 
@@ -1147,15 +1192,24 @@ def import_infer(
     only: Annotated[
         list[str] | None, typer.Option(help="Asset ids to infer; default all observed.")
     ] = None,
+    force: Annotated[
+        bool, typer.Option(help="Re-infer assets whose draft a person rejected.")
+    ] = False,
 ) -> None:
     """Infer a draft spec for every observed asset and open one question each."""
     from veena.importer import infer_drafts
 
+    if not semantic.exists():
+        raise _fail(
+            VeenaError(
+                f"no semantic model at {semantic}; run `veena import dbt` first or pass --semantic"
+            )
+        )
     try:
-        reg = _open_registry(registry)
+        reg = _open_registry(registry, must_exist=True)
         model = load_semantic_model(semantic)
         drafts = infer_drafts(
-            reg, model, _classifier(classifier), drafter=_drafter(drafter), only=only
+            reg, model, _classifier(classifier), drafter=_drafter(drafter), only=only, force=force
         )
     except VeenaError as exc:
         raise _fail(exc) from exc
@@ -1174,16 +1228,23 @@ def question_confirm(
     semantic: Annotated[
         Path, typer.Option("--semantic", help="Semantic model YAML.")
     ] = DEFAULT_IMPORTED_SEMANTIC,
-    actor: str = "user:owner",
-    authority: str = "role:data_owner",
 ) -> None:
-    """Confirm inferred drafts in one batch, plus any a person already answered confirm_draft."""
+    """Confirm inferred drafts in one batch, plus any a person already answered confirm_draft.
+
+    Threshold confirmations are recorded as the engine's decisions under the resolution policy.
+    """
     from veena.importer import confirm_drafts
 
+    if not semantic.exists():
+        raise _fail(
+            VeenaError(
+                f"no semantic model at {semantic}; run `veena import dbt` first or pass --semantic"
+            )
+        )
     try:
-        reg = _open_registry(registry)
+        reg = _open_registry(registry, must_exist=True)
         model = load_semantic_model(semantic)
-        confirmed = confirm_drafts(reg, model, above=above, actor=actor, authority=authority)
+        confirmed = confirm_drafts(reg, model, above=above)
     except VeenaError as exc:
         raise _fail(exc) from exc
     for asset_id in confirmed:
@@ -1222,7 +1283,7 @@ def report_duplicates(
 @report_app.command("usage")
 def report_usage(registry: RegistryPath = DEFAULT_REGISTRY, asset_id: str = "") -> None:
     """Readers per asset with cadence, class, and whether a commitment exists or is proposed."""
-    state = _open_registry(registry).state
+    state = _open_registry(registry, must_exist=True).state
     for (aid, consumer), u in sorted(state.usage.items()):
         if asset_id and aid != asset_id:
             continue

@@ -52,6 +52,10 @@ class VerificationError(VeenaError):
     """Verification could not build its checks."""
 
 
+class ManifestError(VeenaError):
+    """A dbt manifest or query history file cannot be read."""
+
+
 class ModelNotConfiguredError(VeenaError):
     """A model adapter was asked to run without the credentials or endpoint it needs."""
 

@@ -6,12 +6,12 @@ import json
 import re
 import statistics
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from veena.errors import VeenaError
 from veena.policy import WorkspaceDefaults
@@ -31,7 +31,10 @@ if TYPE_CHECKING:
 
 
 class QueryRecord(BaseModel):
-    """One row as Snowflake's QUERY_HISTORY view reports it, trimmed to what the importer reads."""
+    """One row as Snowflake's QUERY_HISTORY view reports it, trimmed to what the importer reads.
+
+    A naive `start_time` is read as UTC, which is how Snowflake exports it.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -45,6 +48,11 @@ class QueryRecord(BaseModel):
     credits_used_cloud_services: float
     query_type: str
     query_text: str
+
+    @field_validator("start_time")
+    @classmethod
+    def _aware(cls, value: datetime) -> datetime:
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 class ReaderClass(StrEnum):
@@ -96,28 +104,61 @@ class HistoryReport(BaseModel):
     commitments_proposed: int
 
 
-_TABLE = re.compile(r"\b(?:from|join)\s+([a-z0-9_]+\.[a-z0-9_]+\.[a-z0-9_]+)", re.I)
-_CTAS = re.compile(
-    r"create\s+or\s+replace\s+(?:transient\s+)?table\s+([a-z0-9_]+\.[a-z0-9_]+\.[a-z0-9_]+)", re.I
+_PART = r'"?[A-Za-z0-9_$]+"?'
+_NAME = rf"(?:{_PART}\.){{1,2}}{_PART}"
+_TABLE = re.compile(rf"\b(?:from|join)\s+({_NAME})", re.I)
+_BUILD = re.compile(
+    rf"\b(?:create\s+(?:or\s+replace\s+)?(?:transient\s+|temporary\s+|temp\s+)*table\s+"
+    rf"|merge\s+into\s+|insert\s+(?:overwrite\s+)?into\s+)({_NAME})",
+    re.I,
 )
-_INTERNAL_LAYERS = frozenset({"staging", "intermediate"})
+_TEMPORARY = re.compile(r"\b(temporary|temp)\s+table\b|_dbt_tmp\b", re.I)
+_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
+_STRING = re.compile(r"'(?:[^']|'')*'")
+_INTERNAL_TOKENS = frozenset({"staging", "stg", "intermediate", "int", "internal"})
 
 
 def load_history(path: Path) -> list[QueryRecord]:
     """Read a JSONL file of query history rows.
 
     Raises:
-        VeenaError: The file cannot be read or a row does not parse.
+        VeenaError: The file cannot be read or a row does not parse; the message names the line.
     """
+    rows: list[QueryRecord] = []
     try:
-        return [
-            QueryRecord.model_validate(json.loads(line))
-            for line in path.read_text().splitlines()
-            if line.strip()
-        ]
-    except (OSError, ValueError) as exc:
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                rows.append(QueryRecord.model_validate(json.loads(line)))
+            except ValueError as exc:
+                msg = f"query history {path} line {number}: {exc}"
+                raise VeenaError(msg) from exc
+    except OSError as exc:
         msg = f"cannot read query history {path}: {exc}"
         raise VeenaError(msg) from exc
+    return rows
+
+
+def referenced_relations(query_text: str) -> set[str]:
+    """Fully qualified relation names a query reads, normalized to lower case without quotes."""
+    cleaned = _STRING.sub("''", _COMMENT.sub(" ", query_text))
+    return {_normalize(t) for t in _TABLE.findall(cleaned)}
+
+
+def built_relation(query_text: str) -> str | None:
+    """The relation a statement builds, or None for a read or a temporary table."""
+    cleaned = _STRING.sub("''", _COMMENT.sub(" ", query_text))
+    match = _BUILD.search(cleaned)
+    if match is None:
+        return None
+    if _TEMPORARY.search(cleaned[: match.end()]) or "_dbt_tmp" in match.group(1).lower():
+        return None
+    return _normalize(match.group(1))
+
+
+def _normalize(name: str) -> str:
+    return ".".join(part.strip('"').lower() for part in name.split("."))
 
 
 class RulesReaderClassifier:
@@ -159,6 +200,12 @@ class RulesReaderClassifier:
         )
 
 
+def is_internal_layer(layer: str, tags: tuple[str, ...]) -> bool:
+    """Whether a dbt schema name or tag marks the relation as not a published interface."""
+    tokens = set(layer.lower().replace("-", "_").split("_"))
+    return bool(tokens & _INTERNAL_TOKENS) or "internal" in tags
+
+
 def import_history(
     registry: Registry,
     records: list[QueryRecord],
@@ -170,23 +217,30 @@ def import_history(
 ) -> HistoryReport:
     """Record usage, refresh cost, unmanaged reads, and proposed commitments from history.
 
-    Args:
-        registry: Where observed assets live and where observations are recorded.
-        records: Query history rows.
-        classifier: Classifies each reader. Defaults to the cadence rules.
-        defaults: Service defaults used to suggest a commitment's freshness.
-        propose_above: Reader probability at or above which a managed or scheduled reader without a
-            commitment gets a `CommitmentProposed`.
-        actor: Recorded on every event.
+    Builds (`create table`, `merge into`, `insert into` on a known relation) count toward
+    refresh cost and are not reads. Temporary tables and dbt's `_dbt_tmp` relations are skipped.
+    Two-part names resolve against the database when every observed relation shares one.
     """
     classifier = classifier or RulesReaderClassifier()
     defaults = defaults or WorkspaceDefaults()
     state = registry.state
-    by_relation = {
-        a.observed.relation.lower(): a.asset_id
-        for a in state.assets.values()
-        if a.observed is not None
-    }
+    by_relation: dict[str, str] = {}
+    databases: set[str] = set()
+    for a in state.assets.values():
+        if a.observed is not None and a.observed.relation:
+            relation = a.observed.relation.lower().replace('"', "")
+            by_relation[relation] = a.asset_id
+            if relation.count(".") == 2:
+                databases.add(relation.split(".")[0])
+    default_database = next(iter(databases)) if len(databases) == 1 else None
+
+    def resolve(name: str) -> str | None:
+        if name in by_relation:
+            return by_relation[name]
+        if default_database and name.count(".") == 1:
+            return by_relation.get(f"{default_database}.{name}")
+        return None
+
     if not records:
         return HistoryReport(
             queries=0,
@@ -204,18 +258,18 @@ def import_history(
     builds: dict[str, list[QueryRecord]] = defaultdict(list)
     matched = 0
     for record in records:
-        ctas = _CTAS.search(record.query_text)
-        if ctas or record.query_type.upper().startswith("CREATE"):
-            target = ctas.group(1).lower() if ctas else ""
-            asset_id = by_relation.get(target)
+        target = built_relation(record.query_text)
+        if target is not None or record.query_type.upper().startswith(
+            ("CREATE", "MERGE", "INSERT")
+        ):
+            asset_id = resolve(target) if target else None
             if asset_id:
                 builds[asset_id].append(record)
                 matched += 1
             continue
-        tables = {t.lower() for t in _TABLE.findall(record.query_text)}
         hit = False
-        for table in tables:
-            asset_id = by_relation.get(table)
+        for table in referenced_relations(record.query_text):
+            asset_id = resolve(table)
             if asset_id:
                 reads[(asset_id, record.user_name)].append(record)
                 hit = True
@@ -246,9 +300,7 @@ def import_history(
         asset = state.assets[asset_id]
         observed = asset.observed
         layer = observed.layer if observed else ""
-        internal = layer in _INTERNAL_LAYERS or (
-            observed is not None and "internal" in observed.tags
-        )
+        internal = is_internal_layer(layer, observed.tags if observed else ())
         times = sorted(r.start_time for r in rows)
         intervals = [(b - a).total_seconds() / 60 for a, b in pairwise(times) if b > a]
         context = ReaderContext(

@@ -7,6 +7,7 @@ teams own three models that mean the same thing, which is the duplicate the engi
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import random
@@ -939,6 +940,7 @@ def build_manifest(config: DbtFixtureConfig | None = None) -> dict[str, Any]:
     """Build the manifest as a plain dict in dbt's v12 shape."""
     config = config or DbtFixtureConfig()
     generated = config.generated_at.isoformat()
+    # Every nested structure is copied so a caller mutating the result never changes the next one.
     sources: dict[str, Any] = {}
     for src, (desc, cols, loader) in _SOURCES.items():
         sources[f"source.{PROJECT}.raw.{src}"] = {
@@ -1097,40 +1099,42 @@ def build_manifest(config: DbtFixtureConfig | None = None) -> dict[str, Any]:
         parents[exp_id] = list(exp["depends_on"]["nodes"])
         for dep in parents[exp_id]:
             children.setdefault(dep, []).append(exp_id)
-    return {
-        "metadata": {
-            "dbt_schema_version": SCHEMA_VERSION,
-            "dbt_version": "1.9.4",
-            "generated_at": generated,
-            "invocation_id": "8d7c0a1e-6b3f-4c2e-9f1a-3e5b7c9d2f40",
-            "env": {},
-            "project_name": PROJECT,
-            "project_id": _checksum(PROJECT)[:32],
-            "user_id": None,
-            "send_anonymous_usage_stats": False,
-            "adapter_type": "snowflake",
-        },
-        "nodes": nodes,
-        "sources": sources,
-        "macros": {},
-        "docs": {},
-        "exposures": exposures,
-        "metrics": metrics,
-        "semantic_models": semantic_models,
-        "saved_queries": {},
-        "groups": {
-            f"group.{PROJECT}.{g}": {
-                "name": g,
-                "owner": {"name": g, "email": f"{g}@shoply.example"},
-            }
-            for g in sorted({m["owner"] for m in _MODELS.values()})
-        },
-        "selectors": {},
-        "disabled": {},
-        "parent_map": parents,
-        "child_map": children,
-        "unit_tests": {},
-    }
+    return copy.deepcopy(
+        {
+            "metadata": {
+                "dbt_schema_version": SCHEMA_VERSION,
+                "dbt_version": "1.9.4",
+                "generated_at": generated,
+                "invocation_id": "8d7c0a1e-6b3f-4c2e-9f1a-3e5b7c9d2f40",
+                "env": {},
+                "project_name": PROJECT,
+                "project_id": _checksum(PROJECT)[:32],
+                "user_id": None,
+                "send_anonymous_usage_stats": False,
+                "adapter_type": "snowflake",
+            },
+            "nodes": nodes,
+            "sources": sources,
+            "macros": {},
+            "docs": {},
+            "exposures": exposures,
+            "metrics": metrics,
+            "semantic_models": semantic_models,
+            "saved_queries": {},
+            "groups": {
+                f"group.{PROJECT}.{g}": {
+                    "name": g,
+                    "owner": {"name": g, "email": f"{g}@shoply.example"},
+                }
+                for g in sorted({m["owner"] for m in _MODELS.values()})
+            },
+            "selectors": {},
+            "disabled": {},
+            "parent_map": parents,
+            "child_map": children,
+            "unit_tests": {},
+        }
+    )
 
 
 # ---- query history ----------------------------------------------------------------------------

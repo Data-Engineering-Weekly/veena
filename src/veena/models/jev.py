@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -22,15 +23,32 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 type Transport = Callable[[str, dict[str, Any], dict[str, str]], dict[str, Any]]
+_MAX_BODY = 1 << 20
 
 
 def _http_transport(url: str, body: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
     request = urllib.request.Request(
         url, data=json.dumps(body).encode(), headers={**headers, "content-type": "application/json"}
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload: dict[str, Any] = json.loads(response.read().decode())
-        return payload
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read(_MAX_BODY + 1)
+    except urllib.error.HTTPError as exc:
+        snippet = exc.read(200).decode(errors="replace") if hasattr(exc, "read") else ""
+        msg = f"jev returned HTTP {exc.code}: {snippet[:200]}"
+        raise ModelError(msg) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        msg = f"jev is unreachable: {exc}"
+        raise ModelError(msg) from exc
+    if len(raw) > _MAX_BODY:
+        msg = "jev response exceeded 1 MiB"
+        raise ModelError(msg)
+    try:
+        payload: dict[str, Any] = json.loads(raw.decode())
+    except (ValueError, UnicodeDecodeError) as exc:
+        msg = f"jev response is not JSON: {raw[:200]!r}"
+        raise ModelError(msg) from exc
+    return payload
 
 
 class JevClassifier:
@@ -58,8 +76,9 @@ class JevClassifier:
         """Return Jev's choice and probability.
 
         Raises:
-            ModelNotConfiguredError: No base URL or key is configured.
-            ModelError: The response is missing fields or names an option outside the set.
+            ModelNotConfiguredError: No base URL or key is configured, or the URL is not https.
+            ModelError: The call failed, or the response is missing fields or names an option
+                outside the set. Error text never includes the bearer token.
         """
         if not self._base_url or not self._api_key:
             msg = "set JEV_BASE_URL and JEV_API_KEY to use the Jev adapter"
@@ -76,10 +95,14 @@ class JevClassifier:
             value = str(payload["value"])
             probability = float(payload["probability"])
         except (KeyError, TypeError, ValueError) as exc:
-            msg = f"jev response missing value or probability: {payload!r}"
+            keys = sorted(payload) if isinstance(payload, dict) else type(payload).__name__
+            msg = f"jev response lacks value or probability; keys: {keys}"
             raise ModelError(msg) from exc
         if value not in names:
             msg = f"jev returned {value!r}, not one of {names}"
+            raise ModelError(msg)
+        if not 0.0 <= probability <= 1.0:
+            msg = f"jev returned probability {probability}, outside [0, 1]"
             raise ModelError(msg)
         raw_alternatives = payload.get("alternatives") or {}
         alternatives = tuple(

@@ -125,7 +125,7 @@ def test_misc_commands(tmp_path):
     missing_consumer = runner.invoke(
         app, ["asset", "request", str(SPECS / "customer_spend_30d.yaml"), *common]
     )
-    assert missing_consumer.exit_code == 1 and "--consumer is required" in missing_consumer.output
+    assert missing_consumer.exit_code == 2 and "--consumer" in missing_consumer.output
     missing_text = runner.invoke(app, ["asset", "request", "--consumer", "x", *common])
     assert missing_text.exit_code == 1 and "--text and --asset-id" in missing_text.output
     bad_clf = runner.invoke(

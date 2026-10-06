@@ -25,10 +25,17 @@ if TYPE_CHECKING:
 
 SITE_INFER = "infer_spec"
 OPEN = "open"
+DEFAULT_INCLUDE_INACTIVE = "false"
 
 _WINDOW_NAME = re.compile(r"(?:^|_)(?:last_|trailing_)?(\d+)d(?:_|$)|(\d+)_days?\b", re.I)
-_WINDOW_SQL = re.compile(r"dateadd\s*\(\s*day\s*,\s*-\s*(\d+)|interval\s+'(\d+)\s+day", re.I)
-_BUCKET = {"daily": "day", "_day": "day", "monthly": "month", "_month": "month"}
+_WINDOW_SQL = re.compile(
+    r"dateadd\s*\(\s*'?(?:day|days|dd|d)'?\s*,\s*-\s*(\d+)"
+    r"|interval\s+'(\d+)\s+days?'"
+    r"|current_date(?:\(\))?\s*-\s*(\d+)\b",
+    re.I,
+)
+_BUCKET_TOKENS = {"daily": "day", "day": "day", "monthly": "month", "month": "month"}
+_DECLINED = frozenset({"reject_draft", "edit_draft"})
 
 
 class InferredDraft(BaseModel):
@@ -47,6 +54,18 @@ class InferredDraft(BaseModel):
         """The least confident filled slot, or 0.0 when a slot is open."""
         filled = [p for s, p in self.probabilities.items() if self.slots.get(s) != OPEN]
         return 0.0 if self.open_slots or not filled else min(filled)
+
+
+class RationaleInput(BaseModel):
+    """What the drafter receives to explain a draft. Structured slots, never a verdict."""
+
+    model_config = ConfigDict(frozen=True)
+
+    asset_id: str
+    description: str
+    slots: dict[str, str]
+    probabilities: dict[str, float]
+    sql_excerpt: str
 
 
 class _Draft:
@@ -70,60 +89,6 @@ class _Draft:
         self.evidence = evidence
 
 
-def _pick(
-    registry: Registry,
-    classifier: Classifier,
-    draft: _Draft,
-    slot: str,
-    options: dict[str, str],
-    actor: str,
-    authority: str,
-) -> None:
-    """Fill one slot from a closed set and record the classifier call."""
-    if not options:
-        draft.slots[slot] = OPEN
-        draft.probabilities[slot] = 0.0
-        draft.evidence.append(f"{slot} open: the semantic model defines no options")
-        return
-    enum = closed_set(sorted(options))
-    context = SlotContext(
-        slot=slot, text=draft.text + " " + draft.sql_excerpt, option_descriptions=options
-    )
-    result = classifier.classify(context, enum)
-    registry.append(
-        Event(
-            actor=actor,
-            authority=authority,
-            causes=(f"asset:{draft.asset_id}",),
-            payload=ClassificationProduced(
-                site=SITE_INFER,
-                slot=slot,
-                asset_id=draft.asset_id,
-                model_id=result.model_id,
-                input_hash=input_hash(context, enum),
-                value=result.value.value,
-                probability=result.probability,
-                alternatives={v.value: p for v, p in result.alternatives},
-            ),
-        )
-    )
-    draft.slots[slot] = result.value.value
-    draft.probabilities[slot] = result.probability
-    draft.evidence.append(f"{slot} = {result.value.value} (p={result.probability:.2f})")
-
-
-class RationaleInput(BaseModel):
-    """What the drafter receives to explain a draft. Structured slots, never a verdict."""
-
-    model_config = ConfigDict(frozen=True)
-
-    asset_id: str
-    description: str
-    slots: dict[str, str]
-    probabilities: dict[str, float]
-    sql_excerpt: str
-
-
 def infer_drafts(
     registry: Registry,
     semantic: SemanticModel,
@@ -131,33 +96,45 @@ def infer_drafts(
     *,
     drafter: Drafter | None = None,
     only: Iterable[str] | None = None,
+    force: bool = False,
     actor: str = "engine",
     authority: str = "policy:resolution@1",
 ) -> list[InferredDraft]:
-    """Open one `inferred_spec` question per observed asset that has none yet.
+    """Open one `inferred_spec` question per observed asset that has none pending.
 
-    Deterministic slots (window, bucket, inactive members, identity policy) get probability 1.0.
-    Classified slots (entity, calculation) carry the classifier's probability. A slot the engine
-    cannot fill is `open` with a reason in the evidence.
+    Deterministic slots (window, bucket, inactive members, identity policy) get probability 1.0
+    when the signal is unambiguous and less when it is not. Classified slots (entity, calculation)
+    carry the classifier's probability. A slot the engine cannot fill is `open` with a reason.
+    An asset whose latest draft a person rejected or set aside to edit is skipped unless `force`.
     """
     state = registry.state
     wanted = set(only) if only is not None else None
     drafts: list[InferredDraft] = []
-    pending = {
-        q.asset_id
-        for q in state.questions.values()
-        if q.slot == "inferred_spec" and q.decision_id is None
-    }
+    pending: set[str] = set()
+    declined: set[str] = set()
+    latest: dict[str, int] = {}
+    for q in state.questions.values():
+        if q.slot != "inferred_spec":
+            continue
+        if q.decision_id is None:
+            pending.add(q.asset_id)
+        if q.seq >= latest.get(q.asset_id, 0):
+            latest[q.asset_id] = q.seq
+            decided = state.decisions[q.decision_id].selected if q.decision_id else ""
+            if decided in _DECLINED:
+                declined.add(q.asset_id)
+            else:
+                declined.discard(q.asset_id)
     entities = {e.name: e.description or e.name for e in semantic.entities}
     calculations = {c.name: c.description or c.name for c in semantic.calculations}
     for asset in sorted(state.assets.values(), key=lambda a: a.asset_id):
-        if (
-            asset.observed is None
-            or asset.spec is not None
-            or asset.status is not AssetStatus.OBSERVED
-        ):
+        if asset.observed is None or asset.spec is not None:
             continue
-        if asset.asset_id in pending or (wanted is not None and asset.asset_id not in wanted):
+        if asset.status is not AssetStatus.OBSERVED or asset.asset_id in pending:
+            continue
+        if asset.asset_id in declined and not force:
+            continue
+        if wanted is not None and asset.asset_id not in wanted:
             continue
         observed = asset.observed
         text = f"{asset.asset_id} {observed.description} columns: {', '.join(observed.columns)}"
@@ -165,14 +142,6 @@ def infer_drafts(
         slots: dict[str, str] = {}
         probabilities: dict[str, float] = {}
         evidence: list[str] = []
-
-        if not re.search(r"\bgroup\s+by\b", sql) and not re.search(r"\b(sum|count)\s*\(", sql):
-            slots["shape"] = OPEN
-            probabilities["shape"] = 0.0
-            evidence.append(
-                "shape open: no aggregation in the SQL; the spec IR describes aggregates only"
-            )
-
         draft = _Draft(
             asset_id=asset.asset_id,
             text=text,
@@ -181,14 +150,23 @@ def infer_drafts(
             probabilities=probabilities,
             evidence=evidence,
         )
+
+        if not re.search(r"\bgroup\s+by\b", sql) and not re.search(r"\b(sum|count)\s*\(", sql):
+            slots["shape"] = OPEN
+            probabilities["shape"] = 0.0
+            evidence.append(
+                "shape open: no aggregation in the SQL; the spec IR describes aggregates only"
+            )
+
         _pick(registry, classifier, draft, "population.entity", entities, actor, authority)
         chosen_entity = next(
             (e for e in semantic.entities if e.name == slots["population.entity"]), None
         )
+        lowered_columns = {c.lower() for c in observed.columns}
         if (
             chosen_entity is not None
-            and observed.columns
-            and chosen_entity.key not in observed.columns
+            and lowered_columns
+            and chosen_entity.key.lower() not in lowered_columns
         ):
             evidence[-1] = (
                 f"population.entity open: the classifier picked {chosen_entity.name} "
@@ -199,19 +177,24 @@ def infer_drafts(
             probabilities["population.entity"] = 0.0
         _pick(registry, classifier, draft, "measures.calculation", calculations, actor, authority)
 
-        bucket = next((b for k, b in _BUCKET.items() if k in asset.asset_id.lower()), "none")
+        bucket, bucket_p, bucket_why = _bucket(asset.asset_id)
         slots["grain.time_bucket"] = bucket
-        probabilities["grain.time_bucket"] = 1.0
-        evidence.append(f"grain.time_bucket = {bucket} (from the name)")
+        probabilities["grain.time_bucket"] = bucket_p
+        evidence.append(f"grain.time_bucket = {bucket} ({bucket_why})")
 
-        days = _window_days(asset.asset_id, sql)
+        days, day_candidates = _window_days(asset.asset_id, sql)
         if bucket == "none":
             slots["window.complete_calendar_days"] = str(days) if days else OPEN
             probabilities["window.complete_calendar_days"] = 1.0 if days else 0.0
             evidence.append(
-                f"window.complete_calendar_days = {days} (from the SQL)"
+                f"window.complete_calendar_days = {days} (from the name or SQL)"
                 if days
-                else "window.complete_calendar_days open: no trailing window in the name or SQL"
+                else "window.complete_calendar_days open: "
+                + (
+                    f"several durations in the SQL: {sorted(day_candidates)}"
+                    if day_candidates
+                    else "no trailing window in the name or SQL"
+                )
             )
         else:
             slots["window.history_days"] = str(days) if days else OPEN
@@ -223,12 +206,19 @@ def infer_drafts(
             )
 
         inactive = bool(re.search(r"\bleft\s+join\b", sql) and "coalesce(" in sql)
+        if bucket != "none":
+            inactive = False
         slots["population.include_inactive"] = str(inactive).lower()
         probabilities["population.include_inactive"] = 1.0
         evidence.append(
-            f"population.include_inactive = {str(inactive).lower()} (left join with coalesce)"
+            "population.include_inactive = true (left join with coalesce)"
             if inactive
-            else "population.include_inactive = false (inner joins only)"
+            else "population.include_inactive = false"
+            + (
+                " (a bucketed asset has no rows for inactive members)"
+                if bucket != "none"
+                else " (inner joins only)"
+            )
         )
 
         entity = slots.get("population.entity", OPEN)
@@ -239,17 +229,16 @@ def infer_drafts(
             for p in semantic.identity_policies
             if p.entity.name == entity and (calc_def is None or p.fact_source == calc_def.source)
         ]
+        fact = calc_def.source if calc_def else "the facts"
         if len(candidates) == 1:
             slots["identity_policy"] = candidates[0].name
             probabilities["identity_policy"] = 1.0
             evidence.append(
-                f"identity_policy = {candidates[0].name} "
-                f"(only policy attaching {calc_def.source if calc_def else '?'} to {entity})"
+                f"identity_policy = {candidates[0].name} (only policy attaching {fact} to {entity})"
             )
         else:
             slots["identity_policy"] = OPEN
             probabilities["identity_policy"] = 0.0
-            fact = calc_def.source if calc_def else "the facts"
             evidence.append(
                 f"identity_policy open: {len(candidates)} policies attach {fact} to {entity}"
             )
@@ -316,15 +305,87 @@ def infer_drafts(
     return drafts
 
 
-def _window_days(name: str, sql: str) -> int | None:
+def _pick(
+    registry: Registry,
+    classifier: Classifier,
+    draft: _Draft,
+    slot: str,
+    options: dict[str, str],
+    actor: str,
+    authority: str,
+) -> None:
+    """Fill one slot from a closed set and record the classifier call."""
+    if not options:
+        draft.slots[slot] = OPEN
+        draft.probabilities[slot] = 0.0
+        draft.evidence.append(f"{slot} open: the semantic model defines no options")
+        return
+    enum = closed_set(sorted(options))
+    context = SlotContext(
+        slot=slot, text=draft.text + " " + draft.sql_excerpt, option_descriptions=options
+    )
+    result = classifier.classify(context, enum)
+    registry.append(
+        Event(
+            actor=actor,
+            authority=authority,
+            causes=(f"asset:{draft.asset_id}",),
+            payload=ClassificationProduced(
+                site=SITE_INFER,
+                slot=slot,
+                asset_id=draft.asset_id,
+                model_id=result.model_id,
+                input_hash=input_hash(context, enum),
+                value=result.value.value,
+                probability=result.probability,
+                alternatives={v.value: p for v, p in result.alternatives},
+            ),
+        )
+    )
+    draft.slots[slot] = result.value.value
+    draft.probabilities[slot] = result.probability
+    draft.evidence.append(f"{slot} = {result.value.value} (p={result.probability:.2f})")
+
+
+def _bucket(asset_id: str) -> tuple[str, float, str]:
+    """The time bucket a name implies: a whole token, surest when it is the trailing one."""
+    tokens = asset_id.lower().split("_")
+    hits = [(i, _BUCKET_TOKENS[t]) for i, t in enumerate(tokens) if t in _BUCKET_TOKENS]
+    if not hits:
+        return "none", 1.0, "no day or month token in the name"
+    index, bucket = hits[-1]
+    if index == len(tokens) - 1:
+        return bucket, 1.0, f"the name ends in {tokens[index]!r}"
+    return bucket, 0.7, f"the name contains {tokens[index]!r}, not at the end"
+
+
+def _window_days(name: str, sql: str) -> tuple[int | None, tuple[int, ...]]:
+    """The trailing window from the SQL or the name, and every duration the SQL names.
+
+    A duration that appears in both the SQL and the name wins. A single SQL duration is taken.
+    Several SQL durations with no match in the name leave the slot open with the candidates.
+    """
+    sql_days: list[int] = []
     for match in _WINDOW_SQL.finditer(sql):
-        value = match.group(1) or match.group(2)
-        if value:
-            return int(value)
+        value = match.group(1) or match.group(2) or match.group(3)
+        if value and int(value) > 0:
+            sql_days.append(int(value))
     name_match = _WINDOW_NAME.search(name)
-    if name_match:
-        return int(name_match.group(1) or name_match.group(2))
-    return None
+    name_days = int(name_match.group(1) or name_match.group(2)) if name_match else None
+    candidates = tuple(dict.fromkeys(sql_days))
+    if name_days is not None and (not candidates or name_days in candidates):
+        return name_days, candidates
+    if len(candidates) == 1:
+        return candidates[0], candidates
+    return None, candidates
 
 
-__all__ = ["OPEN", "SITE_INFER", "SITE_RESOLVE", "InferredDraft", "RationaleInput", "infer_drafts"]
+__all__ = [
+    "DEFAULT_INCLUDE_INACTIVE",
+    "OPEN",
+    "SITE_INFER",
+    "SITE_RESOLVE",
+    "InferredDraft",
+    "RationaleInput",
+    "infer_drafts",
+]

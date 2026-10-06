@@ -44,11 +44,11 @@ The sales application's request is already in the registry. The engine plans a d
 
 ### Executor
 
-* **R2.11** A DuckDB executor materializes an implementation as a table named by implementation id and publishes a stable view named by asset id that points at the active implementation.
+* **R2.11** A DuckDB backend materializes an implementation as a table named by implementation id and publishes a stable view named by asset id that points at the active implementation.
   Acceptance: after activation `SELECT * FROM customer_spend_30d` returns the asset; the view's definition names the implementation table.
 * **R2.12** Switching the view to another implementation is one statement, so later rewiring does not interrupt readers.
   Acceptance: a test materializes two implementations and repoints the view; row counts before and after match.
-* **R2.13** The executor records source progress: the max fact timestamp it has incorporated, per source.
+* **R2.13** The backend records source progress: the max fact timestamp it has incorporated, per source.
   Acceptance: progress appears on an `ImplementationRefreshed` event and in `veena registry assets`.
 
 ### Verification
@@ -88,7 +88,7 @@ Shared intermediates and rewiring (phase 3). Natural language (phase 4). Any bac
 
 ## Evidence
 
-* 88 tests pass, 42 of them new in this phase. `ruff check`, `ruff format --check`, and `mypy --strict` are clean across 55 files.
+* The suite, `ruff check`, `ruff format --check`, and `mypy --strict` pass. CI carries the counts.
 * The CLI walkthrough in USAGE.md ran `asset plan`, `asset activate`, `asset show`, and `asset verify` on the default scenario on Oct 5 2026 with the output shown there.
 * R2.5: the rendered SQL matches `approved_spend_sql` row for row on the default scenario. `tests/backends/test_duckdb.py`.
 * R2.17: the naive plan passes uniqueness and population, fails reconciliation and conservation, and the failure names remapped customers. `tests/verification/test_checks.py`.
@@ -100,3 +100,5 @@ Partial:
 * R2.4 asks that a second renderer not be required. None exists yet, so the "no backend fields" guarantee rests on the field-name test in `tests/planner/test_compile.py`, not on a second backend. Phase 5 settles it.
 * R2.10 lists three refusal reasons; the compiler also refuses specs with filters or more than one grain key, because neither is supported yet. Those are honest `PlanError`s, not silent drops. Filters and multi-key grains are open work.
 * R2.13 reports progress on `ImplementationRefreshed` and in `registry assets`. There is no scheduler yet; refresh happens when the coordinator runs.
+
+* The review that preceded open-sourcing (Oct 5 2026) pinned its findings in `tests/test_sql_review.py`. Rules that changed as a result are listed in CHANGELOG.md.

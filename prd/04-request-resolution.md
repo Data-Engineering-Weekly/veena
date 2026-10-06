@@ -66,7 +66,7 @@ A third consumer asks for household spending over 90 days. The semantic model ha
 
 ## Evidence
 
-* 134 tests pass, 30 of them new in this phase. `ruff check`, `ruff format --check`, and `mypy --strict` are clean across 66 files.
+* The suite, `ruff check`, `ruff format --check`, and `mypy --strict` pass. CI carries the counts.
 * The CLI walkthrough in USAGE.md ran on Oct 5 2026 with the offline keyword classifier: the sales request resolved to a spec with provenance on every requirement, the household request opened one question on `population.entity` with evidence per alternative, the answer was recorded with asset scope, and resuming moved the gap to the missing identity policy.
 * R4.2: the outcome type is a closed union of `ResolvedSpec`, `OpenQuestion`, and `Refusal`; `tests/test_resolver.py` covers each branch.
 * R4.3 and R4.11: the classifier's options are a `StrEnum` built from the semantic model, so a scripted answer outside the set raises `ValueError` before the resolver sees it. The Claude adapter's structured output schema carries the same enum, and a value outside it raises `ModelError`.
@@ -100,3 +100,5 @@ Chat UI. Multi-turn negotiation beyond question and answer. Learning from decisi
 * Prompt injection through request text. Settled by R4.14 screening and R4.11's closed output type. A test sends a request containing instructions to use an unapproved table and confirms a refusal.
 * Cardinality. Jev takes up to 255 options per call. A semantic model with more refs of one kind needs a first pass that narrows by entity. Settled by a test with 300 synthetic calculations.
 * Vendor availability. Jev is early access. The adapter boundary means a scripted or alternative classifier keeps the suite and the CLI working.
+
+* The review that preceded open-sourcing (Oct 5 2026) pinned its findings in `tests/test_resolver_review.py` and `tests/models/test_adapters.py`. Rules that changed as a result are listed in CHANGELOG.md.

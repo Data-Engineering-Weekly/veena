@@ -72,7 +72,7 @@ Then the harder part. A candidate daily asset has the naive join. The daily outp
 
 ## Evidence
 
-* 104 tests pass, 16 of them new in this phase. `ruff check`, `ruff format --check`, and `mypy --strict` are clean across 59 files.
+* The suite, `ruff check`, `ruff format --check`, and `mypy --strict` pass. CI carries the counts.
 * The CLI walkthrough in USAGE.md ran the 30-day request, then the 90-day request, on the default scenario on Oct 5 2026. The second activation was a `share` proposal with a measured benefit of 881 fact rows per refresh. Three assets ended active, both windowed views match the approved definition row for row, and the 30-day asset reads the daily asset.
 * R3.2: the derived spec equals the bundled `customer_spend_daily.yaml` except for provenance. `tests/test_overlap.py`.
 * R3.6: with the minimum set above the measured benefit, and separately with the cap at zero, the engine builds directly and records the rejected proposal with the reason. `tests/test_coordinator_share.py`.
@@ -98,3 +98,5 @@ Natural language. Non-DuckDB backends. Cost in currency. Retirement (phase 6).
 * Reorganization churn when demand shifts slightly. Settled by R3.6 and a test that flips demand back and forth under the cap and observes no second reorganization.
 * Blast radius: a shared dependency failing takes down more consumers. Settled by recording affected consumers on every proposal (R3.7) and by the operator view in phase 6.
 * Backfill cost on large history. Not settled in this phase; the scenario is small. Phase 5 measures it on a real backend.
+
+* The review that preceded open-sourcing (Oct 5 2026) pinned its findings in `tests/test_coordinator_review.py`. Rules that changed as a result are listed in CHANGELOG.md.

@@ -14,7 +14,9 @@ jobs:
         with:
           enable-cache: true
       - name: Install
-        run: uv sync --all-groups
+        run: uv sync --all-extras --all-groups
+      - name: Lock file is current
+        run: uv lock --check
       - name: Format
         run: uv run ruff format --check .
       - name: Lint

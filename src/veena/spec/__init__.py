@@ -12,7 +12,7 @@ from veena.spec.model import (
     TimeBucket,
     Window,
 )
-from veena.spec.subsumption import Operation, SubsumptionResult, Verdict, check
+from veena.spec.subsumption import Operation, SubsumptionResult, Verdict, check, compare
 
 __all__ = [
     "Aggregation",
@@ -28,6 +28,7 @@ __all__ = [
     "Verdict",
     "Window",
     "check",
+    "compare",
     "dump_spec",
     "load_spec",
     "parse_spec",

@@ -45,3 +45,6 @@ def verification_grade(results: tuple[CheckResult, ...]) -> Grade:
         if result.passed and not result.structural and result.grade.rank > best.rank:
             best = result.grade
     return best
+
+
+__all__ = ["CheckResult", "Grade", "verification_grade"]

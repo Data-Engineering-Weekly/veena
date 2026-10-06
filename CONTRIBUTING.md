@@ -5,21 +5,22 @@ Thanks for looking at veena. This file is the short version; [AGENTS.md](AGENTS.
 ## Setup
 
 ```bash
-uv sync --all-groups
+uv sync --all-extras --all-groups
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```
 
-All three checks must pass. CI runs the same commands on Python 3.14.
+All three checks must pass. CI runs the same commands on Python 3.14, plus `uv lock --check` and `uv build`.
 
 ## Making a change
 
 1. Find the requirement in [prd/](prd/README.md). Every behavior has an id like `R3.6` and an acceptance line. If your change has no requirement, open an issue first so we can write one.
 2. Add or change the test that settles the acceptance before you change the code.
-3. Keep one name per concept. The vocabulary table in AGENTS.md is the source of truth. A new concept means a new row.
-4. Library code never prints and never calls a model outside the call sites listed in `prd/00-vision.md`.
-5. Write the pull request description the way AGENTS.md says to write prose: answer first, short sentences, what failed or is uncertain and what would settle it.
+3. Add tests next to the module they cover; a finding from a review goes in that area's `test_*_review.py`.
+4. Keep one name per concept. The vocabulary table in AGENTS.md is the source of truth. A new concept means a new row.
+5. Library code never prints and never calls a model outside the call sites listed in `prd/00-vision.md`.
+6. Write the pull request description the way AGENTS.md says to write prose: answer first, short sentences, what failed or is uncertain and what would settle it.
 
 ## What we will say no to
 

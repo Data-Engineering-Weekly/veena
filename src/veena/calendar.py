@@ -34,3 +34,6 @@ def window_bounds(as_of: datetime, days: int, timezone: str) -> tuple[datetime, 
 def sql_timestamptz(value: datetime) -> str:
     """Render a UTC instant as a DuckDB TIMESTAMPTZ literal."""
     return f"TIMESTAMPTZ '{value.astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S')}+00'"
+
+
+__all__ = ["last_complete_day", "sql_timestamptz", "window_bounds"]

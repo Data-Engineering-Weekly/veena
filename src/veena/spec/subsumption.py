@@ -48,7 +48,7 @@ class SubsumptionResult(BaseModel):
         return self.verdict is not Verdict.CANNOT
 
 
-def check(provider: AssetSpec, consumer: AssetSpec) -> SubsumptionResult:
+def compare(provider: AssetSpec, consumer: AssetSpec) -> SubsumptionResult:
     """Check whether `provider` can serve every row and measure `consumer` asks for.
 
     Args:
@@ -238,3 +238,9 @@ def _same_meaning(provider: AssetSpec, consumer: AssetSpec) -> bool:
         and provider.identity_policy == consumer.identity_policy
         and provider.service == consumer.service
     )
+
+
+# `check` is the name the first release used; `compare` matches the vocabulary and the CLI.
+check = compare
+
+__all__ = ["Operation", "SubsumptionResult", "Verdict", "check", "compare"]

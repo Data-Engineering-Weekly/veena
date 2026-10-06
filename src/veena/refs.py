@@ -94,3 +94,6 @@ class OriginRef(Ref):
         """Render the ref in its text form."""
         suffix = "" if self.version is None else f"@{self.version}"
         return f"{self.origin_kind}:{self.name}{suffix}"
+
+
+__all__ = ["OriginRef", "PolicyRef", "Ref", "SemanticRef"]

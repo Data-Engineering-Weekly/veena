@@ -12,11 +12,34 @@ This guide covers the CLI and the two file formats it reads: specifications and 
 | `veena spec examples` | Print the paths of the bundled example specs and semantic model. |
 | `veena scenario build` | Generate the synthetic sources into a DuckDB file. |
 | `veena scenario semantic` | Validate the bundled semantic model and list its definitions. |
-| `veena asset request SPEC --consumer NAME` | Record a request, its resolved spec, and the consumer's commitment. |
+| `veena scenario dbt` | Write the bundled e-commerce dbt manifest and query history for shadow mode. |
+| `veena asset request SPEC --consumer NAME` | Record a request from a spec file, its resolved spec, and the consumer's commitment. |
+| `veena asset request --text WORDS --asset-id ID --consumer NAME` | Resolve a request from the consumer's words into a spec, a question, or a refusal. |
+| `veena asset resolve ID` | Resume resolution after a question was answered. |
+| `veena asset plan ID` | Print the plan and the SQL the backend would run, without running it. |
+| `veena asset activate ID` | Propose, implement, verify, and deploy. Shares an intermediate when policy allows. |
+| `veena asset verify ID` | Re-run the generated checks against the published interface. |
+| `veena asset show ID` | Print everything the registry knows about one asset, as text or as the article's YAML fragment. |
 | `veena registry assets` | List assets with status, spec version, and open commitments. |
 | `veena registry log` | Print every event after a revision. |
+| `veena proposal list|show|approve|reject` | Inspect and decide change proposals. |
+| `veena deployment list|rollback` | Inspect deployments and undo the latest one. |
+| `veena question list|show|answer|confirm` | Inspect open questions, record a decision, confirm inferred drafts in a batch. |
+| `veena models calls|calibration` | List model calls and report how honest a classifier's probabilities are. |
+| `veena import dbt MANIFEST [--history FILE]` | Import a dbt manifest, MetricFlow definitions, and query history as observed state. |
+| `veena import infer` | Open one inferred draft spec per observed asset as a question. |
+| `veena report duplicates [--propose]` | Find equivalence sets across confirmed specs; record consolidation proposals in shadow. |
+| `veena report usage` | Readers per asset with cadence and class, plus refresh cost. |
 
-Default locations are under `.veena/` in the current directory: `scenario.duckdb` for the sources and `registry.sqlite` for the event log. Both are ignored by git.
+Default locations are under `.veena/` in the current directory and ignored by git:
+
+| Path | Holds |
+|---|---|
+| `scenario.duckdb` | The synthetic sources and every asset the engine builds. |
+| `registry.sqlite` | The event log. |
+| `calibration/` | Labeled model predictions for `models calibration`. |
+| `semantic.yaml` | The semantic model `import dbt` derives from MetricFlow. |
+| `dbt/` | The bundled manifest and query history that `scenario dbt` writes. |
 
 ## Walkthrough: the customer-spend story
 
@@ -31,13 +54,13 @@ built .veena/scenario.duckdb
   customers: 200
   accounts: 170
   identity_mappings: 187
-  purchases: 1857
+  purchases: 9667
   remapped_accounts: 17
-  refunded_purchases: 104
+  refunded_purchases: 471
   inactive_customers: 30
 ```
 
-Two numbers matter. The 17 remapped accounts each have two identity rows, so a join on account id alone double counts their purchases. The 30 inactive customers have no purchases, so a correct asset must still show them with zero spend.
+Purchases arrive as baskets, around six items each, so a daily asset compresses them. Two numbers matter. The 17 remapped accounts each have two identity rows, so a join on account id alone double counts their purchases. The 30 inactive customers have no purchases, so a correct asset must still show them with zero spend.
 
 Register the first request. The spec file is the resolved form of "one row per customer with spending over the previous 30 complete UTC days".
 
@@ -91,9 +114,9 @@ uv run veena registry log
 revision 6
 customer_spend_30d           specified  spec=customer_spend_30d@1     commitments=1 impl=-
 customer_spend_90d           specified  spec=customer_spend_90d@1     commitments=1 impl=-
-    1  2026-10-05T15:22:39+00:00  asset_requested          actor=app:sales authority=request:app:sales
-    2  2026-10-05T15:22:39+00:00  spec_resolved            actor=engine authority=request:app:sales
-    3  2026-10-05T15:22:39+00:00  commitment_registered    actor=engine authority=request:app:sales
+    1  2026-10-06T00:06:20+00:00  asset_requested          actor=app:sales authority=request:app:sales
+    2  2026-10-06T00:06:20+00:00  spec_resolved            actor=engine authority=request:app:sales
+    3  2026-10-06T00:06:20+00:00  commitment_registered    actor=engine authority=request:app:sales
     ...
 ```
 
@@ -104,8 +127,10 @@ Both assets are `specified` and neither has an implementation. The planner will 
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | A file could not be read, failed validation, or the registry rejected an event. The message starts with `error:`. |
+| 1 | A file could not be read, failed validation, the registry rejected an event, or policy refused the action. The message starts with `error:`. |
 | 2 | `spec compare` ran and the provider cannot serve the consumer. |
+| 3 | The engine asked a question instead of acting: `asset request --text` or `asset resolve` opened one, `asset activate` escalated, or `asset verify` found a failing check. |
+| 4 | `asset request --text` refused the request, for example because the screen flagged it. |
 
 ## The specification file
 
@@ -247,7 +272,7 @@ uv run veena asset plan customer_spend_30d --as-of 2026-10-01T00:00:00+00:00
 ```
 
 ```
-plan customer_spend_30d@1 (semantic 54430b48dacb)
+plan customer_spend_30d@1 (semantic e9884a18d25f)
   1. scan purchases (purchases)
   2. attribute time by semantic:purchase_date@1: purchased_at as event_at
   3. window trailing 30 complete days in UTC
@@ -266,18 +291,19 @@ uv run veena asset activate customer_spend_30d --as-of 2026-10-01T00:00:00+00:00
 ```
 
 ```
+verification of customer_spend_30d:
   ok   unique_grain               [structural] one row per customer_id
   ok   population_preserved       [structural] every customer in customers appears exactly once
   ok   reconcile_spend_usd        [reconciliation] spend_usd equals SUM(purchase_amount_usd@4) attributed by customer_identity_point_in_time@2, per customer_id
        uncertainty: absolute tolerance 0.005 USD
   ok   conserve_spend_usd         [reconciliation] total spend_usd equals SUM(purchase_amount_usd@4) over purchases in the window, so every fact counts exactly once
        uncertainty: facts whose key maps to no entity in the window would be missing from both sides of a per-entity reconciliation; this check catches them
-activated customer_spend_30d via customer_spend_30d:d1 after 1 attempt(s); grade reconciliation; registry at revision 8
+activated customer_spend_30d via customer_spend_30d_d1 (direct) after 1 attempt(s); grade reconciliation; registry at revision 9
 ```
 
 Four checks ran and nobody wrote them. Two are structural and gate pass or fail. Two are value checks and set the grade. The reconciliation compares every customer's total against a query verification built itself from the identity policy and the approved calculation. The conservation check compares the asset's total against the raw settled total in the window, so a purchase counted twice or dropped shows up even when every per-customer row looks plausible.
 
-Five events were written: proposal, implementation, refresh, verification, deployment. The asset is now a view named `customer_spend_30d` over the table `customer_spend_30d__v1__i1`. Consumers read the view. When the engine rewires the asset in phase 3, the view moves and the consumer does not.
+Six events were written: the proposal opened, the proposal approved under the routine activation policy, the implementation planned, the implementation refreshed, the verification, and the deployment. The deployment is recorded before the interface is published, so a crash between the two leaves a record to repair from rather than an unexplained view. The asset's interface is now a view named `customer_spend_30d` over the table `customer_spend_30d__v1__i1`. Consumers read the interface. When the engine rewires the asset, the interface moves and the consumer does not.
 
 Read the trail back.
 
@@ -286,6 +312,7 @@ uv run veena asset show customer_spend_30d
 ```
 
 ```
+request by app:sales: "spend over the previous 30 complete UTC days"
 asset customer_spend_30d  status=active  impl=customer_spend_30d__v1__i1
 spec customer_spend_30d@1: one row per semantic:customer@1, 30 complete days in UTC, identity semantic:customer_identity_point_in_time@2
   population.entity <- message:m1
@@ -293,15 +320,15 @@ spec customer_spend_30d@1: one row per semantic:customer@1, 30 complete days in 
   measures.spend_usd.calculation <- policy:approved_spending_semantics@4
   identity_policy <- policy:approved_spending_semantics@4
 commitment customer_spend_30d:app:sales: app:sales, incorporate within 300s
-deployment customer_spend_30d:d1 (active): customer_spend_30d__v1__i1 via customer_spend_30d:p1, verified by customer_spend_30d:p1:v1, assumed revision 3
-proposal customer_spend_30d:p1: implement customer_spend_30d@1 directly from approved sources
-  implementation customer_spend_30d__v1__i1 on duckdb; reads purchases@54430b48dacb, identity_mappings@54430b48dacb, customers@54430b48dacb
-  verification customer_spend_30d:p1:v1: passed, grade reconciliation, 4/4 checks
+deployment customer_spend_30d_d1 (active): customer_spend_30d__v1__i1 via customer_spend_30d_p1, verified by customer_spend_30d_p1_v1, assumed revision 3
+proposal customer_spend_30d_p1 (direct, activated): implement customer_spend_30d@1 directly from approved sources
+  implementation customer_spend_30d__v1__i1 on duckdb; reads purchases@e9884a18d25f, identity_mappings@e9884a18d25f, customers@e9884a18d25f
+  verification customer_spend_30d_p1_v1: passed, grade reconciliation, 4/4 checks
 ```
 
 Every line points to its origin. The deployment names the proposal, the verification, and the registry revision it assumed. The spec names the message or policy each requirement came from.
 
-Re-run the checks at any time against the published view:
+Re-run the checks at any time against the published interface:
 
 ```bash
 uv run veena asset verify customer_spend_30d --as-of 2026-10-01T00:00:00+00:00
@@ -312,12 +339,6 @@ It exits 3 when a check fails.
 ### What happens when the implementation is wrong
 
 The scenario plants the article's bug: some accounts moved between customers inside the window. A join on account id alone counts those purchases twice. The engine's planner never produces that join, so the CLI cannot show the failure directly. The test suite can. `tests/test_coordinator.py::test_repair_bound_escalates_with_a_question` forces the naive join through an injected planner with the repair bound at 1. The result in the registry is one failed verification whose reconciliation names the affected customers and the total discrepancy, and one open question asking a person how to proceed. The asset stays `specified` and nothing is published.
-
-### Exit codes added in this phase
-
-| Code | Meaning |
-|---|---|
-| 3 | `asset activate` escalated with a question instead of activating, or `asset verify` found a failing check. |
 
 ## Walkthrough, continued: a second request reshapes the graph
 
@@ -335,7 +356,7 @@ The engine prints three verifications, one per affected asset, and ends with:
 activated customer_spend_90d via customer_spend_daily_d1 (share) after 1 attempt(s); grade reconciliation; registry at revision 27
 ```
 
-The word `share` is the architectural decision. The engine did not build a second direct aggregation. It compared the two specifications, found they agree on everything but the window, derived a customer-by-day asset with 90 days of history, built it, rewired the 30-day asset to read from it, built the 90-day asset on it, verified all three, and switched all three views in one transaction. Look at what it decided and why.
+The word `share` is the architectural decision. The engine did not build a second direct aggregation. It compared the two specifications, found they agree on everything but the window, derived a customer-by-day asset with 90 days of history, built it, rewired the 30-day asset to read from it, built the 90-day asset on it, verified all three, and switched all three interfaces in one transaction. Look at what it decided and why.
 
 ```bash
 uv run veena proposal show customer_spend_daily_p1
@@ -361,7 +382,7 @@ proposal customer_spend_daily_p1 (share) status=activated
 
 Three things to read here. The cost is measured, not estimated: the engine built the daily candidate, counted the fact rows each plan processes per refresh, and compared. The policy that allowed it is named. And the alternatives it considered first are recorded, so a reviewer can see that reusing the 30-day asset was checked and refused for a stated reason.
 
-The sales application never changed anything. Its view still answers:
+The sales application never changed anything. Its interface still answers:
 
 ```bash
 uv run veena asset show customer_spend_30d
@@ -373,7 +394,7 @@ asset customer_spend_30d  status=active  impl=customer_spend_30d__v1__i2  reads 
 deployment customer_spend_30d_d1 (active): customer_spend_30d__v1__i1 via customer_spend_30d_p1, verified by customer_spend_30d_p1_v1, assumed revision 3
 deployment customer_spend_daily_d1 (active): customer_spend_30d__v1__i2 via customer_spend_daily_p1, verified by customer_spend_daily_p1_v2, assumed revision 12
 ...
-  implementation customer_spend_30d__v1__i2 on duckdb; reads customer_spend_daily@customer_spend_daily__v1__i1, customers@54430b48dacb
+  implementation customer_spend_30d__v1__i2 on duckdb; reads customer_spend_daily@customer_spend_daily__v1__i1, customers@e9884a18d25f
   verification customer_spend_daily_p1_v2: passed, grade reconciliation, 5/5 checks
 ```
 
@@ -404,11 +425,11 @@ uv run veena deployment list
 uv run veena deployment rollback customer_spend_daily_d1 --reason "support saw wrong totals"
 ```
 
-Rollback repoints every view the deployment switched to what it replaced. The 30-day view goes back to its first implementation. The daily and 90-day views are dropped because nothing preceded them. The event records the consumers who may have read the rolled-back data and over what interval, because a rollback fixes future reads and cannot undo past ones.
+Rollback repoints every interface the deployment switched to what it replaced, and only the latest deployment can be rolled back. The 30-day interface goes back to its first implementation. The daily and 90-day interfaces are dropped because nothing preceded them. The event records the consumers who may have read the rolled-back data and over what interval, because a rollback fixes future reads and cannot undo past ones.
 
 ### When the shared candidate is wrong
 
-`tests/test_coordinator_share.py::test_naive_shared_candidate_is_caught_repaired_and_then_activated` forces the article's bug into the daily candidate on the first attempt. The daily asset's own reconciliation fails, and so does the 30-day asset's, whose failure names `customer_spend_daily` as the cause. Nothing is published. On the second attempt the planner produces the correct join, all three verifications pass, and one deployment switches the three views. The registry keeps both attempts.
+`tests/test_coordinator_share.py::test_naive_shared_candidate_is_caught_repaired_and_then_activated` forces the article's bug into the daily candidate on the first attempt. The daily asset's own reconciliation fails, and so does the 30-day asset's, whose failure names `customer_spend_daily` as the cause. Nothing is published. On the second attempt the planner produces the correct join, all three verifications pass, and one deployment switches the three interfaces. The registry keeps both attempts.
 
 ### When history is missing
 
@@ -468,7 +489,7 @@ The owner answers, and the answer has a scope.
 
 ```bash
 uv run veena question answer household_spend_90d_q1 --select household_by_residence \
-  --rationale "support groups by where people live" --actor user:ananth
+  --rationale "support groups by where people live" --actor user:owner
 uv run veena asset resolve household_spend_90d --threshold 0.6
 ```
 
@@ -545,7 +566,7 @@ The bundled labeled set is small, and on it the keyword baseline is right every 
 | Flag | Needs | What it is |
 |---|---|---|
 | `--classifier keyword` | nothing | Word overlap between the request and each option's name and description. Deterministic. Abstains on verdicts. |
-| `--classifier claude` | `ANTHROPIC_API_KEY` or `ant auth login` | Claude with a structured output schema whose `value` field is the closed set. Model id from `VEENA_CLAUDE_MODEL`, default `claude-fable-5-1`. |
+| `--classifier claude` | `ANTHROPIC_API_KEY`; install with `uv sync --extra claude` | Claude with a structured output schema whose `value` field is the closed set. Model id from `VEENA_CLAUDE_MODEL`, default `claude-fable-5-1`. |
 | `--classifier jev` | `JEV_BASE_URL`, `JEV_API_KEY` | Posts to an assumed `POST /v1/decide` contract. Jev's API is not public yet; the adapter is one place to correct. |
 | `--drafter claude` | as above | Phrases questions from structured alternatives and evidence. |
 
@@ -563,7 +584,7 @@ uv run veena import dbt .veena/dbt/manifest.json --history .veena/dbt/query_hist
 ```
 
 ```
-imported shoply: 41 assets added, 0 updated, 0 unchanged; 14 commitments added, 0 kept
+imported shoply: 41 assets added, 0 updated, 0 unchanged, 0 ephemeral skipped; 14 commitments added, 0 kept
 semantic model: 4 entities, 4 calculations, 3 time rules, 4 identity policies -> .veena/semantic.yaml
 semantic gaps recorded as questions: 2
 history: 5419 queries, 5419 matched assets, 22 usage rows, 26 refresh costs, 1 unmanaged reads, 8 commitments proposed
@@ -571,7 +592,7 @@ history: 5419 queries, 5419 matched assets, 22 usage rows, 26 refresh costs, 1 u
 
 Four things happened. Every model is now an asset with status `observed`, its SQL and dependencies on record and no spec. Every exposure edge became a commitment from `exposure:<name>`. The MetricFlow semantic models became a semantic model written to `.veena/semantic.yaml`: primary entities, additive measures as calculations, aggregation time dimensions as time rules, and foreign entities as direct identity policies. The two ratio metrics could not be represented and were recorded as questions on their models. The query history became usage per reader, rebuild cost per model, one unmanaged read of an intermediate table, and eight proposed commitments for readers who hold none.
 
-Run the import again and nothing changes. A model whose checksum changed is updated.
+Run the import again and nothing changes. A model whose checksum changed is updated. Ephemeral models have no table, so they are skipped and counted. Versioned models import as `name_vN`; seeds and snapshots import like models.
 
 ### Inferring what each model means
 
@@ -580,6 +601,11 @@ uv run veena import infer
 ```
 
 ```
+cust_spend_last_30d          weakest slot p=0.62
+customer_spend_30d           weakest slot p=0.58
+customer_spend_90d           weakest slot p=0.58
+customer_spend_30d_v2        weakest slot p=0.56
+campaign_attribution         weakest slot p=0.00 open: identity_policy, population.entity, window.complete_calendar_days
 ...
 stg_orders                   weakest slot p=0.00 open: identity_policy, shape, window.complete_calendar_days
 41 drafts opened as questions

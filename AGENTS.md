@@ -6,7 +6,7 @@ The design is described in "The Self-Organizing Data Stack" (Ananth Packkildurai
 
 ## Vocabulary
 
-Use one name for each concept everywhere: planner, executor, registry, CLI, docs, metrics, tests. Do not introduce synonyms.
+Use one name for each concept everywhere: planner, backend, registry, CLI, docs, metrics, tests. Do not introduce synonyms.
 
 | Name | Meaning |
 |---|---|
@@ -26,8 +26,8 @@ Use one name for each concept everywhere: planner, executor, registry, CLI, docs
 | subsumption | The check that one spec can serve another. Result: equal, serves, serves with operations, or cannot. |
 | plan | The backend-neutral description of an implementation: an ordered list of steps over the IR. |
 | step | One operation in a plan: source scan, time attribution, window, identity join, aggregate, population join. |
-| backend | Renders a plan to SQL for one engine, materializes implementations, and publishes the asset interface. |
-| interface | The stable view named by asset id that consumers read. Repointing it is how the engine rewires. |
+| backend | Renders a plan to SQL for one engine, materializes implementations, and publishes the asset interface. There is no separate executor. |
+| interface | What consumers read: a SQL view named by the asset id. Repointing it is how the engine rewires. Say interface, not view, outside SQL. |
 | refresh rule | Derived from the spec: incorporation bound, boundary timezone, correction lookback. |
 | check | One generated verification query with a grade. Structural checks gate pass or fail; value checks set the grade. |
 | grade | Strength of evidence: proof, reconciliation, test, sample. |
@@ -55,21 +55,21 @@ src/veena/
   calendar.py     Complete-day window arithmetic in a named timezone.
   registry/       Event-sourced registry: events, SQLite and Postgres stores, projections.
   scenario/       Synthetic DuckDB workspace and the shoply dbt manifest and query history fixture.
-tests/            Mirrors src/veena. One test module per source module.
+tests/            Mirrors src/veena: one module per source module, plus `test_*_review.py` modules that pin review findings.
 prd/              One requirements document per phase, with ids and acceptance tests.
 ```
 
 ## Commands
 
 ```bash
-uv sync                      # install everything, including the dev group
+uv sync --all-extras --all-groups   # everything: runtime, optional adapters, dev tools
 uv run veena --help          # the CLI
 uv run pytest                # tests
 uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```
 
-Use `uv` for every build, run, lint, dependency change, and one-off script. Never call `python`, `python3`, or `pip` directly, in docs, in shell commands, or in tooling. Run a script with `uv run path/to/script.py` and an inline snippet with `uv run python -c "..."`. The `python3` shim on this machine is unreliable, and uv is the only interpreter path this project supports. Target the newest stable CPython (3.14 as of Oct 2026); bump `requires-python` and `.python-version` together.
+Use `uv` for every build, run, lint, dependency change, and one-off script. Never call `python`, `python3`, or `pip` directly, in docs, in shell commands, or in tooling. Run a script with `uv run path/to/script.py` and an inline snippet with `uv run python -c "..."`. uv is the only interpreter path this project supports. Target the newest stable CPython (3.14 as of Oct 2026); bump `requires-python` and `.python-version` together.
 
 ## Writing
 
@@ -78,7 +78,7 @@ Write like two engineers talking at a whiteboard.
 * Lead with the answer, then the reasoning. Short sentences, one idea each.
 * Use bullet points for anything longer than a few sentences.
 * Use everyday words. Define an unavoidable technical term once, in one sentence, then use it the same way every time.
-* No analogies, metaphors, or dramatic shorthand. Say "the run is on Modal", not "the flight is in the air"; say "saved", "finished", "running", not "banked", "landed", "armed", "healthy".
+* No analogies, metaphors, or dramatic shorthand. Say "the deployment is recorded", not "the deployment has landed"; say "saved", "finished", "running", not "banked", "landed", "armed", "healthy".
 * Give an example with "For example," and all of its context: "For example, imagine a table where each row is an agent trace…".
 * Give numbers, and say what each is compared with: "52.3 s, compared with 47 s for the unavoidable work alone".
 * Do not start a sentence with a number.
@@ -88,7 +88,7 @@ Write like two engineers talking at a whiteboard.
 
 * Comments state constraints the code cannot show, nothing else.
 * Docstrings follow Google style: a one-line summary, a blank line, then optional Args, Returns, and Raises. Say what the code does, not why it was written or what it replaced.
-* Use one name for each concept across the planner, the executor, the docs, and the metrics. See Vocabulary.
+* Use one name for each concept across the planner, the backend, the docs, and the metrics. See Vocabulary.
 * Type every function. `mypy --strict` must pass.
 * Data that crosses a module boundary is a frozen Pydantic model or a frozen dataclass. No dicts as records.
 * Enumerations are `StrEnum`.

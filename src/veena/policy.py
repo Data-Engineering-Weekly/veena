@@ -64,3 +64,6 @@ class ResolutionPolicy(BaseModel):
     def threshold(self, slot: str) -> float:
         """Threshold for one slot, falling back to the default."""
         return self.slot_thresholds.get(slot, self.default_threshold)
+
+
+__all__ = ["ReorganizationPolicy", "ResolutionPolicy", "WorkspaceDefaults"]

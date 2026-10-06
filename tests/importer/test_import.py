@@ -288,7 +288,7 @@ def test_manual_confirm_answer_is_honored(registry, project):
 
     registry.append(
         Event(
-            actor="user:ananth",
+            actor="user:owner",
             authority="role:data_owner",
             payload=DecisionRecorded(
                 decision_id="d1",

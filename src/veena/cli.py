@@ -54,7 +54,12 @@ RegistryPath = Annotated[
     Path, typer.Option("--registry", help="SQLite file holding the event log.")
 ]
 ScenarioPath = Annotated[
-    Path, typer.Option("--scenario", help="DuckDB file holding the sources and assets.")
+    Path,
+    typer.Option(
+        "--scenario",
+        help="DuckDB file holding the sources and assets. The CLI drives DuckDB only; "
+        "Snowflake is used from code.",
+    ),
 ]
 SemanticPath = Annotated[
     Path | None, typer.Option("--semantic", help="Semantic model YAML. Default: bundled.")
@@ -228,6 +233,8 @@ def _close_all() -> None:
 def registry_log(registry: RegistryPath = DEFAULT_REGISTRY, after: int = 0) -> None:
     """Print every event after a revision."""
     reg = _open_registry(registry, must_exist=True)
+    if reg.revision <= after:
+        typer.echo(f"no events after revision {after}")
     for stored in reg.events(after=after):
         event = stored.event
         typer.echo(
@@ -776,6 +783,8 @@ def _report_activation(outcome: ActivationOutcome, reg: Registry) -> None:
 def proposal_list(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
     """List proposals with kind, status, and affected assets."""
     state = _open_registry(registry, must_exist=True).state
+    if not state.proposals:
+        typer.echo("no proposals recorded")
     for p in sorted(state.proposals.values(), key=lambda p: p.seq):
         typer.echo(
             f"{p.proposal_id:<34} {p.kind_of_change:<7} {p.status:<10} "
@@ -857,6 +866,8 @@ def proposal_reject(
 def deployment_list(registry: RegistryPath = DEFAULT_REGISTRY) -> None:
     """List deployments and what each switched."""
     state = _open_registry(registry, must_exist=True).state
+    if not state.deployments:
+        typer.echo("no deployments recorded")
     for d in sorted(state.deployments.values(), key=lambda d: d.seq):
         status = "rolled back" if d.rolled_back else "active"
         switched = ", ".join(f"{a} -> {i}" for a, i in d.activated.items())
@@ -897,6 +908,8 @@ def question_list(
 ) -> None:
     """List questions with slot, asset, and answer."""
     state = _open_registry(registry, must_exist=True).state
+    if not state.questions:
+        typer.echo("no questions recorded")
     for q in sorted(state.questions.values(), key=lambda q: q.seq):
         if open_only and q.decision_id:
             continue
@@ -933,7 +946,7 @@ def question_answer(
         str,
         typer.Option(help="asset, consumer, or workspace. Workspace needs --authority role:..."),
     ] = "asset",
-    actor: Annotated[str, typer.Option(help="Who is deciding, e.g. user:ananth.")] = "user:owner",
+    actor: Annotated[str, typer.Option(help="Who is deciding, e.g. user:owner.")] = "user:owner",
     authority: Annotated[
         str, typer.Option(help="Under what authority, e.g. role:data_owner.")
     ] = "role:data_owner",
@@ -1284,6 +1297,8 @@ def report_duplicates(
 def report_usage(registry: RegistryPath = DEFAULT_REGISTRY, asset_id: str = "") -> None:
     """Readers per asset with cadence, class, and whether a commitment exists or is proposed."""
     state = _open_registry(registry, must_exist=True).state
+    if not state.usage:
+        typer.echo("no usage recorded; import query history with `veena import dbt --history`")
     for (aid, consumer), u in sorted(state.usage.items()):
         if asset_id and aid != asset_id:
             continue
@@ -1304,3 +1319,11 @@ def report_usage(registry: RegistryPath = DEFAULT_REGISTRY, asset_id: str = "") 
                 f"  {aid:<28} {c.runs:>3} rebuilds {c.bytes_scanned / 1e9:>8.2f} GB "
                 f"{c.credits:>9.4f} credits"
             )
+
+
+def main() -> None:
+    """Console entry point."""
+    app()
+
+
+__all__ = ["app", "main"]

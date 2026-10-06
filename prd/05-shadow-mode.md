@@ -63,7 +63,7 @@ A platform team points veena at a dbt manifest and a Snowflake account. The engi
 
 ## Evidence
 
-* 151 tests pass, 17 of them new in this phase, and one live Postgres test skips without `VEENA_POSTGRES_DSN`. `ruff check`, `ruff format --check`, and `mypy --strict` are clean across 82 files.
+* The suite, `ruff check`, `ruff format --check`, and `mypy --strict` pass; one live Postgres test skips without `VEENA_POSTGRES_DSN`. CI carries the counts.
 * No real dbt project was available, so the import fixture is generated: `veena scenario dbt` writes a manifest for an e-commerce project, shoply, with 41 models across staging, intermediate, and marts, 15 raw sources, 5 exposures, 4 MetricFlow semantic models, 6 metrics, and 5,419 query history rows over 14 days from nine warehouse users. Three teams own three 30-day spend models that mean the same thing. The generator and the generated files are both checked in under `src/veena/scenario/dbt_fixture.py` and `fixtures/shoply/`.
 * The CLI walkthrough in USAGE.md ran on Oct 5 2026: import recorded 41 observed assets and 14 exposure commitments, derived a semantic model with 4 entities, 4 calculations, 3 time rules, and 4 direct identity policies, recorded 2 semantic gaps as questions, and imported history into 22 usage rows, 26 refresh costs, 1 unmanaged read, and 8 proposed commitments. Inference opened 41 draft questions. Confirming at 0.5 resolved the four spend specs. The duplicates report grouped the three 30-day models with their owners, consumers, and measured credits, and one consolidation proposal was recorded in shadow.
 * R5.1: re-import changes nothing; a changed checksum updates one asset. `tests/importer/test_import.py`.
@@ -92,3 +92,5 @@ Autonomy above shadow. Databricks and BigQuery backends; they follow the same pr
 * Teams without a semantic layer get only questions. Settled by R5.4 import and by measuring how many models get a confirmed spec in the first week of a pilot. If that number is low, the next phase is bootstrap tooling.
 * The dbt manifest encodes SQL, not meaning. Inference will be wrong often. Settled by R5.2: inference is always a question. The quality metrics are how often the owner accepts a draft unchanged and the classifier's calibration on the confirmed set, reported with `veena models calibration infer_spec`.
 * Snowflake-specific plan fields leak into the neutral plan. Settled by the phase 2 R2.4 test and by the conformance suite.
+
+* The review that preceded open-sourcing (Oct 5 2026) pinned its findings in `tests/importer/test_import_review.py`. Rules that changed as a result are listed in CHANGELOG.md.

@@ -1,7 +1,8 @@
 """A Postgres event store for workspaces with more than one writer.
 
-Needs the optional `psycopg` dependency (`uv sync --group postgres`). The revision check runs
-inside a serializable transaction, so two writers racing on the same revision cannot both win.
+Needs the optional `psycopg` dependency from the `postgres` extra (`uv sync --extra postgres`). The
+revision check runs inside a serializable transaction, so two writers racing on the same revision
+cannot both win.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ class PostgresEventStore:
             try:
                 import psycopg
             except ImportError as exc:
-                msg = "PostgresEventStore needs psycopg; run `uv sync --group postgres`"
+                msg = "PostgresEventStore needs psycopg: install veena[postgres]"
                 raise RegistryError(msg) from exc
             connect = psycopg.connect
         self._conn = connect(dsn)

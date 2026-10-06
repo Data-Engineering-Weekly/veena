@@ -5,15 +5,15 @@ This guide is for people changing the code. Read [AGENTS.md](AGENTS.md) first. I
 ## Setup
 
 ```bash
-uv sync
+uv sync --all-extras --all-groups
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```
 
-All three checks must pass before a change is done. Current state: 151 tests plus one live-Postgres skip, 0 lint findings, 0 type errors across 82 files.
+All three checks must pass before a change is done. CI runs them on every push; the badge and the workflow log carry the current counts.
 
-Everything runs through `uv`. The `python3` on this machine is not used, and `uv run python -c "..."` replaces any inline snippet.
+Everything runs through `uv`. `uv run python -c "..."` replaces any inline snippet.
 
 ## How the pieces fit
 
@@ -37,14 +37,16 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 * `veena.verification` builds checks from the spec and semantic model and runs them against a relation name. It does not import the planner or the backends, and a test enforces it. `veena.evidence` holds `Grade` and `CheckResult` so the registry can store results without importing verification.
 * `veena.overlap` runs subsumption between a new spec and every active spec in both directions, and derives a shared daily spec from two windowed specs that agree on entity, identity policy, access policy, timezone, and re-aggregable measures.
 * `veena.policy` holds `ReorganizationPolicy`: minimum measured benefit, a cap on reorganizations per asset per period, and whether a person must approve.
-* `veena.coordinator` runs the loop: `propose` decides between reading from a provider, creating a shared intermediate, or building direct, and records what it considered; `implement`, `verify`, and `deploy` act on every affected asset, shared asset first. `activate` runs all of it with re-planning up to the repair bound. `deploy` refuses when any affected asset's commitments changed since the proposal opened, and switches every interface in one transaction when the backend can, or one at a time with an `InterfaceSwitched` event each when it cannot. `rollback` repoints interfaces to what the deployment replaced. `approve`, `reject`, and `resume` manage proposals that wait for a person.
+* `veena.coordinator` runs the loop: `propose` decides between reading from a provider, creating a shared intermediate, or building direct, and records what it considered; `implement`, `verify`, and `deploy` act on every affected asset, shared asset first. `activate` runs all of it with re-planning up to the repair bound. `deploy` refuses when any affected asset's commitments changed since the proposal opened, records `DeploymentActivated` first, then switches every interface in one transaction when the backend can, or one at a time with an `InterfaceSwitched` event each when it cannot. `rollback` repoints interfaces to what the latest deployment replaced; older deployments cannot be rolled back because a later one already changed what they switched. `approve`, `reject`, and `resume` manage proposals that wait for a person.
 * `veena.models` holds the two protocols and their adapters. `KeywordClassifier` is the offline baseline and CLI default; it scores word overlap and abstains with a uniform probability on verdict contexts. `ClaudeClassifier` constrains Claude's structured output to the closed set; `ClaudeDrafter` writes prose. `JevClassifier` posts to an assumed HTTP contract behind an injectable transport. `RecordingClassifier` and `ReplayClassifier` capture and replay real answers for offline tests. `calibration.py` turns labeled predictions into a reliability table. `closed_set` builds the enum a classifier must choose from.
 * `veena.importer` reads a dbt manifest (`manifest.py`), records models as observed assets and exposures as commitments (`dbt.py`), maps MetricFlow to a semantic model with gaps (`metricflow.py`), imports query history into usage, refresh cost, unmanaged reads, and proposed commitments (`history.py`), infers one draft spec per observed asset as a question (`infer.py`), confirms drafts into specs (`confirm.py`), and reports equivalence sets and consolidation proposals (`report.py`). Nothing it imports becomes meaning without a decision.
-* `veena.backends.sql` is the shared SQL backend over any connection with `execute(sql)`; DuckDB and Snowflake subclass it and override the timestamp literal, zone conversion, bucket, and DDL hooks. Snowflake's DDL autocommits, so it reports non-atomic publishing and the coordinator stages switches.
-* `veena.registry.postgres` is the multi-writer store behind the optional `postgres` dependency group. The revision check runs in a serializable transaction.
+* `veena.sqldialect` holds the SQL that differs by engine: timestamp literals, zone conversion, time buckets, distinct-row counts, session setup. `DuckDBDialect` and `SnowflakeDialect` implement it. The backends and verification share it, so a check renders for the same engine as the plan.
+* `veena.backends.sql` is the shared SQL backend over any connection with `execute(sql)`; DuckDB and Snowflake subclass it with a dialect and override the DDL hooks. Snowflake's DDL autocommits, so it reports non-atomic publishing and the coordinator stages switches. Backends also drop implementations, unpublish interfaces, and measure the fact rows a plan processes, which is how proposals get a measured cost.
+* `veena.errors` is the exception tree. Everything the library raises on purpose is a `VeenaError` subclass, and the CLI maps that one type to exit code 1.
+* `veena.registry.postgres` is the multi-writer store behind the optional `postgres` extra. The revision check runs in a serializable transaction.
 * `veena.scenario.dbt_fixture` generates the shoply manifest and query history.
-* `veena.resolver` turns a request into a spec, a question, or a refusal. It screens the text, picks each ref slot from a closed set, extracts numbers deterministically, fills unstated service terms from `WorkspaceDefaults`, reuses scoped decisions, judges the assembled draft, and records every model call as an event. Thresholds come from `ResolutionPolicy`.
-* `veena.registry` is the event log and its projections. Two event kinds were added in phase 2: `ImplementationPlanned` and `ImplementationRefreshed`. `VerificationRecorded` now carries structured `CheckResult`s and source progress.
+* `veena.resolver` turns a request into a spec, a question, or a refusal. It screens the text, picks each ref slot from a closed set, extracts numbers deterministically, fills unstated service terms from `WorkspaceDefaults`, consumes scoped decisions once so an answered question is never asked again, judges the assembled draft, and records every model call as an event. Thresholds come from `ResolutionPolicy`.
+* `veena.registry` is the event log and its projections. `events.py` lists every event kind. `state.py` applies them and enforces the invariants: an event that names an unknown asset, moves an asset to an impossible status, or activates an unverified implementation raises, so the log can never hold a state the projections cannot explain. `registry.py` appends with the revision it last saw and retries a conflict a bounded number of times; callers that need to assume a revision pass `expected_revision` themselves. `store.py` has the memory and SQLite stores.
 * `veena.scenario` builds the synthetic workspace and holds the reference SQL that tests compare against.
 * `veena.calendar` computes complete-day window bounds in a named timezone. Both the planner and verification use it; it is arithmetic, not candidate logic.
 * `veena.cli` is the only module that prints.
@@ -67,7 +69,7 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 
 **Sharing is a measured, gated decision.** The engine builds the shared candidate once to measure fact rows processed per refresh for the current and proposed graphs, then a policy decides. Below the minimum benefit, or over the reorganization cap, the proposal is recorded as rejected with the reason and the engine builds directly. Nothing about the decision comes from a model.
 
-**Consumers read a view; the engine moves the view.** Each implementation is a table named by implementation id. Each asset is a view named by asset id. Rewiring the 30-day asset means building a new table from the daily asset and repointing the view inside the same transaction that publishes the daily and 90-day views.
+**Consumers read an interface; the engine moves it.** Each implementation is a table named by implementation id. Each asset's interface is a SQL view named by asset id. Rewiring the 30-day asset means building a new table from the daily asset and repointing the view inside the same transaction that publishes the daily and 90-day views.
 
 **A model never sees the whole problem.** The classifier gets a typed context and a closed option set per slot. The drafter gets structured alternatives and evidence with no chosen answer. Neither gets the planner's SQL or verification checks. The resolver assembles the spec; the models only nominate.
 
@@ -113,6 +115,8 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 
 ## Testing conventions
 
+Findings from a code review are pinned in `tests/test_*_review.py` modules, one per area, so the fix and the failure it prevents stay next to each other.
+
 * One test module per source module, mirrored under `tests/`.
 * `tests/conftest.py` exposes `make_spec(...)` for building spec variants in one call, plus `spec_dir` and `semantic_path` fixtures pointing at the bundled files.
 * Store tests are parameterized over memory and SQLite so both stay in step.
@@ -121,7 +125,7 @@ request ──► spec (IR) ──► registry events ──► projections ─�
 
 ## Roadmap
 
-The full requirements for each phase, with ids and acceptance tests, live in [prd/](prd/README.md). In short, the phases agreed on Oct 5 2026:
+The full requirements for each phase, with ids and acceptance tests, live in [prd/](prd/README.md). In short, the phases set on Oct 5 2026:
 
 1. **Done.** Registry, spec IR, semantic model, DuckDB scenario, CLI.
 2. **Done.** Deterministic planner, DuckDB backend, independent verification, coordinator. The planner produces the point-in-time join; verification catches the naive one and the coordinator escalates with a question.

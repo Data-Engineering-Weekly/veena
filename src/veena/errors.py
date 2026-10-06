@@ -70,3 +70,22 @@ class PolicyError(VeenaError):
 
 class ResolutionError(VeenaError):
     """The resolver could not proceed with a request."""
+
+
+__all__ = [
+    "BackendError",
+    "CoordinationError",
+    "ManifestError",
+    "ModelError",
+    "ModelNotConfiguredError",
+    "PlanError",
+    "PolicyError",
+    "RegistryError",
+    "ResolutionError",
+    "RevisionConflictError",
+    "ScenarioError",
+    "SemanticRefError",
+    "SpecError",
+    "VeenaError",
+    "VerificationError",
+]

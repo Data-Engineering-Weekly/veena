@@ -68,4 +68,6 @@ Planning, execution, verification, model calls, any backend but DuckDB, any UI b
 
 ## Evidence
 
-46 tests pass. `ruff check`, `ruff format --check`, and `mypy --strict` are clean across 32 source files. The CLI walkthrough in USAGE.md ran end to end on Oct 5 2026.
+The suite, `ruff check`, `ruff format --check`, and `mypy --strict` pass. CI carries the counts. The CLI walkthrough in USAGE.md ran end to end on Oct 5 2026.
+
+* The review that preceded open-sourcing (Oct 5 2026) pinned its findings in `tests/registry/test_invariants.py` and `tests/test_cli_more.py`. Rules that changed as a result are listed in CHANGELOG.md.

@@ -12,7 +12,9 @@ requires-python = ">=3.14"
 keywords = ["data-engineering", "orchestration", "semantic-layer", "dbt", "duckdb", "snowflake", "agents"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
     "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.14",
     "Topic :: Database",
@@ -20,7 +22,6 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "anthropic>=1.11.0",
     "duckdb>=1.4",
     "pydantic>=2.11",
     "pytz>=2025.2",  # duckdb needs it to return TIMESTAMPTZ values to Python
@@ -29,13 +30,15 @@ dependencies = [
     "typer>=0.17",
 ]
 
+[project.optional-dependencies]
+claude = ["anthropic>=1.11.0"]
+postgres = ["psycopg[binary]>=3.2"]
+all = ["anthropic>=1.11.0", "psycopg[binary]>=3.2"]
+
 [project.scripts]
-veena = "veena.cli:app"
+veena = "veena.cli:main"
 
 [dependency-groups]
-postgres = [
-    "psycopg[binary]>=3.2",
-]
 dev = [
     "mypy>=1.17",
     "pytest>=8.4",
@@ -46,6 +49,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/ananthdurai/veena"
+Repository = "https://github.com/ananthdurai/veena"
 Documentation = "https://github.com/ananthdurai/veena/blob/main/USAGE.md"
 Changelog = "https://github.com/ananthdurai/veena/blob/main/CHANGELOG.md"
 Issues = "https://github.com/ananthdurai/veena/issues"
@@ -53,6 +57,9 @@ Issues = "https://github.com/ananthdurai/veena/issues"
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+source-include = ["tests/**", "fixtures/**", "prd/**", "USAGE.md", "DEVELOPERS.md", "AGENTS.md"]
 
 [tool.ruff]
 line-length = 100
@@ -100,13 +107,13 @@ files = ["src", "tests"]
 module = ["duckdb.*", "psycopg", "psycopg.*"]
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra"
-filterwarnings = ["error::ResourceWarning"]
-
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 disallow_untyped_calls = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["error::ResourceWarning"]

@@ -38,10 +38,25 @@ Early build. Phases 1 to 5 are done. These parts exist and are tested:
 
 Not built yet: the operator view, brakes, repair of live assets, and graded retirement. Phase 6.
 
-## Quick start
+## Install
+
+Veena needs Python 3.14 and [uv](https://docs.astral.sh/uv/). From a clone:
 
 ```bash
 uv sync
+```
+
+Optional adapters install as extras. `claude` adds the Anthropic SDK for the Claude classifier and drafter. `postgres` adds psycopg for a shared registry. `all` adds both.
+
+```bash
+uv sync --extra all
+```
+
+Every command runs as `uv run veena ...`. State lives in `.veena/` under the working directory: the registry at `.veena/registry.sqlite`, the DuckDB scenario at `.veena/scenario.duckdb`, recorded model calls under `.veena/calibration`. Delete the directory to start over. `uv run veena spec examples` prints the bundled specification files.
+
+## Quick start
+
+```bash
 uv run veena scenario build
 uv run veena asset request src/veena/scenario/specs/customer_spend_30d.yaml --consumer app:sales
 uv run veena asset activate customer_spend_30d
@@ -75,4 +90,4 @@ See [USAGE.md](USAGE.md) for every command and the file formats. See [prd/](prd/
 
 ## License
 
-Not yet chosen.
+Apache-2.0. See [LICENSE](LICENSE).
